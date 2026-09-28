@@ -284,7 +284,7 @@ body.locked > header, body.locked > main { display: none; }
       </div>
       <div class="card">
         <h2>Voorbeelden van goede antwoorden</h2>
-        <p class="note">Elke keer dat je op <b>Kopiëren</b> klikt, wordt de mail met jouw definitieve antwoord (inclusief je eigen aanpassingen) onthouden. Bij een nieuwe mail krijgt de AI de meest vergelijkbare voorbeelden mee, zodat de antwoorden steeds beter bij jouw stijl passen. Mailadressen, telefoonnummers en IBANs worden daarbij altijd verborgen.</p>
+        <p class="note">Elke keer dat je op <b>Kopiëren</b> klikt, wordt de mail met jouw definitieve antwoord (inclusief je eigen aanpassingen) onthouden. Bij een nieuwe mail krijgt de AI de meest vergelijkbare voorbeelden mee, zodat de antwoorden steeds beter bij jouw stijl passen. Namen, mailadressen, telefoonnummers, IBANs, postcodes en bestelnummers worden daarbij verborgen.</p>
         <label style="display:flex;gap:8px;align-items:center;color:var(--text);cursor:pointer"><input type="checkbox" id="learnOn" style="width:auto;margin:0"> Automatisch leren bij Kopiëren</label>
         <p class="note" id="exCount"></p>
         <div id="exList" style="margin-top:8px"></div>
@@ -382,7 +382,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.7.1';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1152,11 +1152,47 @@ const maskAlways = t => t.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[e-mail]')
   .replace(/\b[A-Z]{2}\d{2}\s?[A-Z]{4}(\s?\d{4}){2}\s?\d{2}\b/gi, '[IBAN]')
   .replace(/(\+31|0031|\b0)[\s-]?\d(?:[\s-]?\d){8}\b/g, '[telefoon]');
 const MAX_EXAMPLES = 150;
+// Namen (en adresregels onder de groet) uit een voorbeeld halen, zodat er geen gegevens van eerdere klanten
+// opnieuw naar de AI gaan. De naam komt uit de aanhef van het antwoord en de ondertekening van de klantmail.
+const NOT_NAMES = /^(klant|klanten|heer\/mevrouw|mevrouw\/heer|allen|team|lezer|customer|sir|madam|sir\/madam|\[klantnaam\])$/i;
+const SIGNOFF = /^\s*((met\s+)?(vriendelijke|hartelijke|zonnige|warme)?\s*(groet(en|jes)?)|gr\.?|mvg|m\.v\.g\.?|groetjes|liefs|(kind|best|warm)\s+regards|regards|cheers|mit freundlichen gr(ü|ue)(ß|ss)en|viele gr(ü|ue)(ß|ss)e|cordialement|bien (à|a) vous|alvast bedankt|bij voorbaat dank|dank (je|u)( wel)?|bedankt)\b[\s,!.]*/i;
+function scrubNames(ex) {
+  const names = new Set();
+  let reply = ex.reply.replace(/^(\s*)(beste|hallo|hoi|geachte|dag|lieve|dear|hi|hello|liebe|lieber|sehr geehrte[rs]?|bonjour|cher|ch(è|e)re)\s+([^,\n]{1,60}),/i, (m, sp, g, _e, name) => {
+    if (NOT_NAMES.test(name.trim())) return m;
+    names.add(name.trim()); return `${sp}${g} [klantnaam],`;
+  });
+  const lines = ex.email.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(SIGNOFF);
+    if (!m) continue;
+    const rest = lines[i].slice(m[0].length).trim();
+    if (rest && rest.length <= 60) names.add(rest);
+    let j = i + 1, taken = 0;
+    while (j < lines.length && taken < 4) { const t = lines[j].trim(); if (t) { if (!rest && taken === 0 && t.length <= 60) names.add(t); taken++; } j++; }
+    lines.splice(i, lines.length - i, m[0].trim() + (rest || taken ? '\n[klantnaam]' : ''));
+    break;
+  }
+  let email = lines.join('\n'), note = ex.note || '';
+  // Groet midden in de laatste regel, bijv. "... ? Groet, Piet Jansen"
+  email = email.replace(/([.!?]\s+|^)((met\s+)?(vriendelijke\s+)?groet(en|jes)?|mvg|gr\.?|groetjes|(kind\s+|best\s+)?regards)[,:]?\s+([^\n.!?\[]{2,40}?)\s*$/i, (m, pre, so, _a, _b, _c, _d, name) => {
+    if (NOT_NAMES.test(name.trim())) return m;
+    names.add(name.trim()); return `${pre}${so} [klantnaam]`;
+  });
+  const parts = new Set();
+  names.forEach(n => { parts.add(n); n.split(/\s+/).forEach(w => { if (w.length >= 3 && !/^(van|der|den|de|het|ter|ten)$/i.test(w)) parts.add(w); }); });
+  [...parts].sort((a, b) => b.length - a.length).forEach(n => {
+    const re = new RegExp(`(^|[^\\p{L}])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^\\p{L}])`, 'giu');
+    email = email.replace(re, '$1[klantnaam]'); note = note.replace(re, '$1[klantnaam]'); reply = reply.replace(re, '$1[klantnaam]');
+  });
+  const other = t => t.replace(/\b\d{4}\s?[A-Z]{2}\b/g, '[postcode]').replace(/#\s?\d{4,}\b/g, '#[nummer]').replace(/(\[klantnaam\]\s*){2,}/g, '[klantnaam] ');
+  return { ...ex, email: other(email), note: other(note), reply: other(reply), scrubbed: 1 };
+}
 function learnFromCopy() {
   if (settings.learn === false) return false;
   const email = $('email').value.trim(), reply = $('reply').value.trim();
   if (!email || !reply || /\[AANVULLEN/i.test(reply)) return false; // niet leren van onafgemaakte antwoorden
-  const ex = { t: Date.now(), email: maskAlways(email), note: maskAlways($('note').value.trim()), reply: maskAlways(reply) };
+  const ex = scrubNames({ t: Date.now(), email: maskAlways(email), note: maskAlways($('note').value.trim()), reply: maskAlways(reply) });
   examples = examples.filter(e => e.email !== ex.email); // zelfde mail: nieuwste versie telt
   examples.unshift(ex); examples = examples.slice(0, MAX_EXAMPLES);
   store.set('examples', examples); renderLearned();
@@ -1375,6 +1411,7 @@ window.onVaultReload = () => {
   renderSettings(); renderKb(); renderHistory();
 };
 
+if (examples.some(e => !e.scrubbed)) { examples = examples.map(e => e.scrubbed ? e : scrubNames(e)); store.set('examples', examples); }
 renderSettings(); renderKb(); renderHistory(); renderLearned();
 };
 </script>

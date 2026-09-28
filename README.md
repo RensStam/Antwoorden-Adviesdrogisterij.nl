@@ -15,7 +15,7 @@ Eén bestand: `index.html`. Het versienummer staat rechts naast de titel (consta
 
 ### Leren van eerdere antwoorden
 
-Klik je op *Kopiëren*, dan onthoudt de app de mail met jouw definitieve antwoord (inclusief eigen aanpassingen; mailadressen, telefoonnummers en IBANs worden verborgen). Bij een nieuwe mail krijgt de AI de drie meest vergelijkbare goedgekeurde antwoorden mee als voorbeeld. Vaste regels voeg je toe via *Onthoud dit als vaste regel* bij *Laat het aanpassen* of in het tabblad *Geleerd*. Daar kun je ook voorbeelden en regels verwijderen of het leren uitzetten.
+Klik je op *Kopiëren*, dan onthoudt de app de mail met jouw definitieve antwoord (inclusief eigen aanpassingen; namen, mailadressen, telefoonnummers, IBANs, postcodes en bestelnummers worden verborgen). Bij een nieuwe mail krijgt de AI de drie meest vergelijkbare goedgekeurde antwoorden mee als voorbeeld. Vaste regels voeg je toe via *Onthoud dit als vaste regel* bij *Laat het aanpassen* of in het tabblad *Geleerd*. Daar kun je ook voorbeelden en regels verwijderen of het leren uitzetten.
 
 ### Controle op huisregels
 
