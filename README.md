@@ -13,6 +13,10 @@ Eén bestand: `index.html`. Het versienummer staat rechts naast de titel (consta
 5. **Kennisbank**: upload je Word-bestanden (Klachten, Retourneren, Standaard antwoorden, Verzendinformatie, Betaalmogelijkheden). Meerdere tegelijk kan.
 6. **Antwoord maken**: plak de mail van de klant, eventueel een notitie, en klik op *Antwoord maken*.
 
+### Controle op huisregels
+
+Na elk antwoord controleert de app automatisch op de regels uit het instructiebestand: verboden woorden, gedachtestreepjes, niet ingevulde [invulplekken], en escalatie- of spoedwoorden in de klantmail. Met *Laten verbeteren* herschrijft de AI het antwoord volgens die regels.
+
 ### Wat wordt meegestuurd?
 
 Documenten met het vinkje *Altijd volledig meesturen* gaan bij elke mail helemaal mee. Vink grote, zelden nodige documenten (bijv. Algemene voorwaarden) uit: daarvan gaan dan alleen de stukken mee die bij de vraag passen. Dat scheelt kosten.
@@ -41,6 +45,7 @@ De workflow `.github/workflows/keep-supabase-awake.yml` houdt het gratis project
 
 - **End-to-end versleuteld**: instructies, kennisbank, geschiedenis en de API-sleutel worden in de browser versleuteld met je wachtwoord (PBKDF2 met 600.000 rondes + AES-256-GCM). De server (Supabase) krijgt alleen onleesbare data en nooit het wachtwoord.
 - **Toegang tot de server** alleen met een toegangsbewijs dat uit het wachtwoord wordt afgeleid; de tabel zelf is niet leesbaar. Een fout wachtwoord geeft een vertraging tegen raden.
+- **Beheerderswachtwoord**: alleen de beheerder kan het gewone wachtwoord wijzigen (de server controleert dat). Instellen via *Instellingen → Wachtwoord en beheer*. Kwijt? In Supabase: `update public.vault set admin_hash = null, admin_salt = null;` en daarna opnieuw instellen.
 - **Wachtwoord kwijt?** Dan is de data niet te herstellen. Wis de kluis in Supabase (SQL: `delete from public.vault;`), kies in de app een nieuw wachtwoord en zet je back-up terug.
 - **Automatisch vergrendelen** na 30 minuten zonder gebruik, of direct via de knop *Vergrendelen*.
 - **Geen bedrijfsgegevens in deze repository**: instructies en kennisbank staan niet in de code.

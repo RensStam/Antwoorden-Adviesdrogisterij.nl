@@ -81,6 +81,10 @@ button.btn:disabled { opacity: .55; cursor: default; }
 details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; }
 .empty { color: var(--muted); font-size: 14px; }
+.checks { margin-top: 12px; border-radius: 8px; padding: 10px 12px; background: var(--warn-soft); color: var(--warn); font-size: 14px; }
+.checks.ok { background: var(--accent-soft); color: var(--accent); }
+.checks ul { margin: 4px 0 0; padding-left: 18px; }
+.checks .actions { margin-top: 8px; }
 #lock { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
 #lock .card { width: 100%; max-width: 400px; }
 #lock h2 { font-size: 18px; }
@@ -179,6 +183,7 @@ body.locked > header, body.locked > main { display: none; }
           <button class="btn primary" id="copyBtn">Kopiëren</button>
           <button class="btn" id="stopBtn" hidden>Stoppen</button>
         </div>
+        <div class="checks" id="checks" hidden></div>
         <label for="refine" style="margin-top:14px">Laat het aanpassen <span style="font-size:12px">(Enter = versturen, Shift + Enter = nieuwe regel)</span></label>
         <textarea id="refine" placeholder="Bijv.: noem ook de kortingscode ZORG10 en zeg dat de bestelling morgen wordt verzonden." style="min-height:110px"></textarea>
         <div class="actions" style="margin-top:8px">
@@ -194,8 +199,9 @@ body.locked > header, body.locked > main { display: none; }
           <button data-r="Vertaal het antwoord naar het Engels.">Engels</button>
         </div>
         <details style="margin-top:14px">
-          <summary>Welke kennisbank-info is meegestuurd?</summary>
-          <pre class="ctx" id="ctxView">Nog niets.</pre>
+          <summary>Meegestuurde kennisbank bij het laatste antwoord <span id="ctxSummary"></span></summary>
+          <p class="note" id="ctxDocs">Nog geen antwoord gemaakt. Hier zie je straks welke documenten de AI heeft gekregen.</p>
+          <pre class="ctx" id="ctxView" hidden></pre>
         </details>
       </div>
     </div>
@@ -299,13 +305,27 @@ body.locked > header, body.locked > main { display: none; }
         <div class="status" id="bkStatus"></div>
       </div>
       <div class="card">
-        <h2>Wachtwoord wijzigen</h2>
-        <p class="note">Alle gegevens (ook je API-sleutel) zijn versleuteld met je wachtwoord. Bij centrale opslag geldt een nieuw wachtwoord meteen op alle computers. De app vergrendelt zich na 30 minuten zonder gebruik.</p>
-        <label for="npw1">Nieuw wachtwoord (minimaal 10 tekens)</label>
-        <input id="npw1" type="password" autocomplete="new-password">
-        <label for="npw2">Herhaal nieuw wachtwoord</label>
-        <input id="npw2" type="password" autocomplete="new-password">
-        <div class="actions"><button class="btn" id="chPw">Wachtwoord wijzigen</button></div>
+        <h2>Wachtwoord en beheer</h2>
+        <p class="note">Alle gegevens (ook je API-sleutel) zijn versleuteld met het wachtwoord. De app vergrendelt zich na 30 minuten zonder gebruik.</p>
+        <div id="adminOld" hidden><p class="note" style="color:var(--warn)">Voer eerst het bijgewerkte <b>supabase/setup.sql</b> uit in Supabase (SQL Editor → Run). Daarna kun je hier een beheerderswachtwoord instellen.</p></div>
+        <div id="adminSetup" hidden>
+          <p class="note">Stel een <b>beheerderswachtwoord</b> in dat alleen jij kent. Alleen daarmee kan het gewone wachtwoord worden gewijzigd; collega's kunnen dat dan niet. Kies een ander wachtwoord dan het gewone.</p>
+          <label for="apw1">Beheerderswachtwoord (minimaal 10 tekens)</label>
+          <input id="apw1" type="password" autocomplete="new-password">
+          <label for="apw2">Herhaal beheerderswachtwoord</label>
+          <input id="apw2" type="password" autocomplete="new-password">
+          <div class="actions"><button class="btn primary" id="setAdmin">Beheerderswachtwoord instellen</button></div>
+        </div>
+        <div id="pwChange" hidden>
+          <p class="note" id="pwChangeNote"></p>
+          <div id="apwWrap"><label for="apw">Beheerderswachtwoord</label>
+          <input id="apw" type="password" autocomplete="current-password"></div>
+          <label for="npw1">Nieuw wachtwoord (minimaal 10 tekens)</label>
+          <input id="npw1" type="password" autocomplete="new-password">
+          <label for="npw2">Herhaal nieuw wachtwoord</label>
+          <input id="npw2" type="password" autocomplete="new-password">
+          <div class="actions"><button class="btn" id="chPw">Wachtwoord wijzigen</button></div>
+        </div>
         <div class="status" id="pwStatus"></div>
       </div>
       <div class="card">
@@ -320,7 +340,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.4.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -401,6 +421,7 @@ async function persist() {
     setSync('✓ Opgeslagen op server');
   } catch (e) {
     keys.forEach(k => dirty.add(k));
+    if (e.code === 'badpw') { passwordChangedElsewhere(); return; }
     setSync('⚠ Niet opgeslagen, opnieuw proberen…', true);
     clearTimeout(saveTimer); saveTimer = setTimeout(persist, 10000);
   } finally { saving = false; }
@@ -419,24 +440,50 @@ async function mergeRemote(localKeys) {
   window.VAULT = remote; version = res.version;
   if (window.onVaultReload) window.onVaultReload();
 }
+// Het wachtwoord is op een andere computer gewijzigd: deze sessie kan niet meer opslaan
+function passwordChangedElsewhere() {
+  key = null; dirty.clear();
+  setSync('⚠ Wachtwoord elders gewijzigd', true);
+  alert('Het wachtwoord is op een andere computer gewijzigd. Log opnieuw in met het nieuwe wachtwoord. (Een wijziging van de laatste seconden op deze computer is mogelijk niet opgeslagen.)');
+  location.reload();
+}
 // Wijzigingen van een andere computer binnenhalen als je terugkomt in dit venster
 async function refreshFromServer() {
   if (!SERVER || !key || saving || dirty.size) return;
   try {
     const res = await rpc('vault_load', { p_token: token, p_known_version: version });
     if (res && res.data) { window.VAULT = await decrypt(res.data); version = res.version; if (window.onVaultReload) window.onVaultReload(); setSync('✓ Bijgewerkt vanaf server'); }
-  } catch {}
+  } catch (e) { if (e.code === 'badpw') passwordChangedElsewhere(); }
 }
 
 window.vaultSave = k => { if (k) dirty.add(k); clearTimeout(saveTimer); saveTimer = setTimeout(persist, SERVER ? 800 : 300); };
-window.vaultChangePassword = async pw => {
+// Beheerderswachtwoord -> toegangsbewijs voor beheertaken (eigen salt, blijft gelijk bij wachtwoordwijziging)
+async function adminToken(pw, saltBytes) {
+  const base = await crypto.subtle.importKey('raw', te.encode(pw), 'PBKDF2', false, ['deriveBits']);
+  return hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: saltBytes, iterations: ITER, hash: 'SHA-256' }, base, 256));
+}
+// Gewoon wachtwoord wijzigen. Bij centrale opslag alleen met het beheerderswachtwoord (de server controleert dat).
+window.vaultChangePassword = async (pw, adminPw) => {
   const newSalt = crypto.getRandomValues(new Uint8Array(16));
   if (!SERVER) { salt = newSalt; iter = ITER; key = await deriveLocal(pw, salt); await persist(); return; }
+  if (!info.admin || !info.admin_salt) throw new Error('Stel eerst een beheerderswachtwoord in.');
+  clearTimeout(saveTimer); if (dirty.size) await persist(); // eerst openstaande wijzigingen opslaan
+  const at = await adminToken(adminPw, unb64(info.admin_salt));
   const d = await deriveServer(pw, newSalt, ITER);
   const data = await encrypt(window.VAULT, d.aes);
-  version = await rpc('vault_rekey', { p_token: token, p_salt: b64(newSalt), p_iter: ITER, p_new_token: d.token, p_data: data, p_version: version });
+  try {
+    version = await rpc('vault_rekey', { p_token: token, p_admin_token: at, p_salt: b64(newSalt), p_iter: ITER, p_new_token: d.token, p_data: data, p_version: version });
+  } catch (e) { if (/invalid_admin/.test(e.message)) throw new Error('Onjuist beheerderswachtwoord.'); throw e; }
   salt = newSalt; iter = ITER; key = d.aes; token = d.token;
 };
+window.vaultSetAdmin = async adminPw => {
+  const aSalt = crypto.getRandomValues(new Uint8Array(16));
+  try { await rpc('vault_set_admin', { p_token: token, p_admin_salt: b64(aSalt), p_admin_token: await adminToken(adminPw, aSalt) }); }
+  catch (e) { if (/admin_exists/.test(e.message)) throw new Error('Er is al een beheerderswachtwoord ingesteld.'); throw e; }
+  info.admin = true; info.admin_salt = b64(aSalt);
+};
+// server: 'local' | 'old-sql' (setup.sql nog niet bijgewerkt) | 'no-admin' | 'admin'
+window.vaultAdminState = () => !SERVER ? 'local' : info.admin === undefined ? 'old-sql' : info.admin ? 'admin' : 'no-admin';
 window.MIN_PW = MIN_PW;
 window.vaultMode = SERVER ? 'server' : 'local';
 
@@ -515,6 +562,7 @@ $('lockForm').addEventListener('submit', async e => {
         const d = await deriveServer(pw, salt, iter);
         key = d.aes; token = d.token;
         version = await rpc('vault_create', { p_salt: b64(salt), p_iter: iter, p_token: token, p_data: await encrypt(window.VAULT) });
+        info = await rpc('vault_info');
         localStorage.removeItem(VAULT_KEY); // staat nu veilig op de server
       } else { key = await deriveLocal(pw, salt); await persist(); }
     }
@@ -999,7 +1047,8 @@ async function run(messages) {
     await chat(messages, t => { text += t; out.value = text; out.scrollTop = out.scrollHeight; });
     text = text.trim(); out.value = text;
     convo = [...messages, { role: 'assistant', content: text }];
-    setStatus(st, /\[AANVULLEN/i.test(text) ? 'Klaar — let op: vul de [AANVULLEN]-plekken nog in.' : 'Klaar. Lees het na en pas aan waar nodig.');
+    const n = renderChecks();
+    setStatus(st, n ? `Klaar. Let op de ${n === 1 ? 'controlepunt' : n + ' controlepunten'} hieronder.` : 'Klaar. Lees het na en pas aan waar nodig.');
     saveHistory(text);
   } catch (e) {
     setStatus(st, 'Er ging iets mis: ' + friendlyError(e), true);
@@ -1015,7 +1064,7 @@ $('genBtn').addEventListener('click', () => {
   if (!isConfigured()) { go('settings'); setStatus($('setStatus'), 'Stel eerst een AI-model in.', true); return; }
   const note = $('note').value.trim();
   const knowledge = selectKnowledge(email + ' ' + note);
-  $('ctxView').textContent = knowledge || '(kennisbank is leeg)';
+  showContext(knowledge);
   const user = `MAIL VAN DE KLANT:\n"""\n${mask(email)}\n"""\n\n${note ? `NOTITIE VAN DE MEDEWERKER (volg deze):\n${mask(note)}\n\n` : ''}Schrijf het antwoord op deze mail.`;
   run([{ role: 'system', content: buildSystem(knowledge) }, { role: 'user', content: user }]);
 });
@@ -1034,11 +1083,74 @@ $('stopBtn').addEventListener('click', () => controller && controller.abort());
 $('copyBtn').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($('reply').value); }
   catch { $('reply').select(); document.execCommand('copy'); }
-  setStatus($('genStatus'), 'Gekopieerd naar klembord.');
+  const n = renderChecks();
+  setStatus($('genStatus'), n ? `Gekopieerd, maar let op: nog ${n === 1 ? '1 controlepunt' : n + ' controlepunten'}.` : 'Gekopieerd naar klembord.', !!n);
+});
+
+// ---------- meegestuurde kennis tonen ----------
+function showContext(knowledge) {
+  if (knowledge === null) { $('ctxSummary').textContent = ''; $('ctxDocs').textContent = 'Nog geen antwoord gemaakt. Hier zie je straks welke documenten de AI heeft gekregen.'; $('ctxView').hidden = true; return; }
+  const full = [], frag = new Map();
+  for (const m of (knowledge || '').matchAll(/^### (.+?)( \(fragment\))?$/gm)) {
+    if (m[2]) frag.set(m[1], (frag.get(m[1]) || 0) + 1); else full.push(m[1]);
+  }
+  const n = full.length + frag.size;
+  $('ctxSummary').textContent = `(${n} document${n === 1 ? '' : 'en'})`;
+  $('ctxDocs').innerHTML = (full.length ? `<b>Volledig:</b> ${full.map(esc).join(', ')}` : '') +
+    (frag.size ? `${full.length ? '<br>' : ''}<b>Passende stukken uit:</b> ${[...frag].map(([d, n]) => `${esc(d)} (${n})`).join(', ')}` : '') ||
+    'De kennisbank is leeg.';
+  $('ctxView').textContent = knowledge || ''; $('ctxView').hidden = !knowledge;
+}
+
+// ---------- controle van het antwoord op de eigen huisregels ----------
+// Regels komen uit het instructiebestand (JSON) als dat er is; anders een paar standaardregels.
+function houseRules() {
+  let j = null; try { j = JSON.parse(instructions); } catch {}
+  const c = (j && j.communicatiehandleiding) || {}, a = (j && j.ai_assistent) || {};
+  const expand = w => w.includes('/') ? (() => { const [first, ...alt] = w.split('/'); const pre = first.split(' ').slice(0, -1).join(' '); return [first, ...alt.map(x => (pre ? pre + ' ' : '') + x)]; })() : [w];
+  return {
+    words: (c.validator && c.validator.verboden_woorden) || ['mevrouw', 'meneer'],
+    dashes: !!((a.forbidden_characters || (c.stijlregels_light && c.stijlregels_light.verboden_tekens) || []).length) || !j,
+    escalate: ((c.escalatie && c.escalatie.triggerwoorden) || []),
+    escalateHow: c.escalatie ? [String(c.escalatie.actie || '').replace(/_/g, ' '), c.escalatie.contactpersoon && [c.escalatie.contactpersoon.naam, c.escalatie.contactpersoon.email].filter(Boolean).join(', ')].filter(Boolean).join(': ') : '',
+    urgent: ((c.respons_policies && c.respons_policies.urgent_markers) || []).flatMap(expand),
+  };
+}
+const hasWord = (text, w) => new RegExp(`(^|[^\\p{L}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}])`, 'iu').test(text);
+function checkReply(text, email) {
+  const r = houseRules(), issues = [], notes = [];
+  const bad = r.words.filter(w => hasWord(text, w));
+  if (bad.length) issues.push(`Verboden woord${bad.length > 1 ? 'en' : ''}: <b>${bad.map(esc).join(', ')}</b>`);
+  if (r.dashes && (/[–—]/.test(text) || / - /.test(text) || /^\s*- /m.test(text))) issues.push('Bevat gedachtestreepjes of opsommingsstreepjes (-, –, —)');
+  const ph = [...new Set(text.match(/\[[^\]\n]{2,60}\]/g) || [])];
+  if (ph.length) issues.push(`Nog invullen: ${ph.map(esc).join(', ')}`);
+  const esc1 = r.escalate.filter(w => hasWord(email, w));
+  if (esc1.length) notes.push(`<b>Escalatie?</b> De klant noemt: ${esc1.map(esc).join(', ')}.${r.escalateHow ? ' Volgens de handleiding: ' + esc(r.escalateHow) + '.' : ''}`);
+  const urg = r.urgent.filter(w => hasWord(email, w));
+  if (urg.length) notes.push(`<b>Spoed:</b> de klant noemt ${urg.map(esc).join(', ')}. Met voorrang beantwoorden.`);
+  return { issues, notes };
+}
+function renderChecks() {
+  const text = $('reply').value.trim(), el = $('checks');
+  if (!text) { el.hidden = true; return 0; }
+  const { issues, notes } = checkReply(text, $('email').value);
+  el.hidden = false; el.classList.toggle('ok', !issues.length && !notes.length);
+  if (!issues.length && !notes.length) { el.innerHTML = '✓ Controle: geen verboden woorden, streepjes of open invulplekken gevonden.'; return 0; }
+  el.innerHTML = '<b>Controle</b><ul>' + [...issues, ...notes].map(x => `<li>${x}</li>`).join('') + '</ul>' +
+    (issues.some(x => !x.startsWith('Nog invullen')) ? '<div class="actions"><button class="btn" id="fixBtn" type="button">Laten verbeteren</button></div>' : '');
+  return issues.length + notes.length;
+}
+let checkTimer;
+$('reply').addEventListener('input', () => { clearTimeout(checkTimer); checkTimer = setTimeout(renderChecks, 400); });
+$('checks').addEventListener('click', e => {
+  if (e.target.id !== 'fixBtn') return;
+  const { issues } = checkReply($('reply').value, $('email').value);
+  const fix = issues.filter(x => !x.startsWith('Nog invullen')).map(x => x.replace(/<[^>]+>/g, ''));
+  refine(`Verbeter het antwoord volgens de huisregels: ${fix.join('; ')}. Verwijder verboden woorden en herschrijf zinnen zonder streepjes (-, –, —). Laat de rest van de inhoud gelijk.`);
 });
 $('clearBtn').addEventListener('click', () => {
   $('email').value = $('note').value = $('reply').value = ''; convo = null;
-  $('ctxView').textContent = 'Nog niets.'; setStatus($('genStatus'), '');
+  showContext(null); $('checks').hidden = true; setStatus($('genStatus'), '');
 });
 document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && document.activeElement.closest('section[data-tab="compose"]')) $('genBtn').click(); });
 
@@ -1060,7 +1172,7 @@ $('histList').addEventListener('click', e => {
   const n = e.target.closest('[data-h]'); if (!n) return;
   const h = history[+n.dataset.h];
   $('email').value = h.email; $('note').value = h.note; $('reply').value = h.reply; convo = null;
-  setStatus($('genStatus'), 'Oud antwoord geopend. Klik "Antwoord maken" om opnieuw te genereren.');
+  setStatus($('genStatus'), 'Oud antwoord geopend. Klik "Antwoord maken" om opnieuw te genereren.'); renderChecks();
   go('compose');
 });
 $('histClear').addEventListener('click', () => { if (confirm('Geschiedenis wissen?')) { history = []; store.set('history', history); renderHistory(); } });
@@ -1107,14 +1219,35 @@ async function checkUpdate() {
 $('updateBtn').addEventListener('click', () => window.vaultLock(location.pathname + '?v=' + $('updateVersion').textContent.slice(1)));
 checkUpdate(); setInterval(checkUpdate, 10 * 60 * 1000);
 window.addEventListener('focus', checkUpdate);
+function renderAdmin() {
+  const st = window.vaultAdminState();
+  $('adminOld').hidden = st !== 'old-sql';
+  $('adminSetup').hidden = st !== 'no-admin';
+  $('pwChange').hidden = !(st === 'admin' || st === 'local');
+  $('apwWrap').hidden = st !== 'admin';
+  $('pwChangeNote').textContent = st === 'admin'
+    ? 'Alleen de beheerder kan het wachtwoord wijzigen. Het nieuwe wachtwoord geldt meteen op alle computers; iedereen moet daarna opnieuw inloggen.'
+    : 'Het wachtwoord geldt voor deze browser.';
+}
+$('setAdmin').addEventListener('click', async () => {
+  const a = $('apw1').value, b = $('apw2').value, st = $('pwStatus');
+  if (a.length < window.MIN_PW) { setStatus(st, `Gebruik minimaal ${window.MIN_PW} tekens.`, true); return; }
+  if (a !== b) { setStatus(st, 'De wachtwoorden zijn niet gelijk.', true); return; }
+  setStatus(st, 'Even geduld…');
+  try { await window.vaultSetAdmin(a); $('apw1').value = $('apw2').value = ''; renderAdmin(); setStatus(st, 'Beheerderswachtwoord ingesteld. Bewaar het goed: alleen hiermee kan het wachtwoord nog worden gewijzigd.'); }
+  catch (e) { setStatus(st, 'Mislukt: ' + e.message, true); }
+});
 $('chPw').addEventListener('click', async () => {
   const a = $('npw1').value, b = $('npw2').value, st = $('pwStatus');
   if (a.length < window.MIN_PW) { setStatus(st, `Gebruik minimaal ${window.MIN_PW} tekens.`, true); return; }
   if (a !== b) { setStatus(st, 'De wachtwoorden zijn niet gelijk.', true); return; }
-  await window.vaultChangePassword(a);
-  $('npw1').value = $('npw2').value = '';
+  setStatus(st, 'Even geduld…');
+  try { await window.vaultChangePassword(a, $('apw').value); }
+  catch (e) { setStatus(st, 'Mislukt: ' + e.message, true); return; }
+  $('npw1').value = $('npw2').value = $('apw').value = '';
   setStatus(st, 'Wachtwoord gewijzigd.');
 });
+renderAdmin();
 
 // Nieuwere gegevens van de server (bijv. gewijzigd op een andere computer): opnieuw inlezen en tonen
 window.onVaultReload = () => {

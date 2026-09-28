@@ -18,6 +18,10 @@ create table if not exists public.vault (
   updated_at timestamptz not null default now()
 );
 
+-- Beheerder: alleen wie het beheerderswachtwoord heeft, kan het gewone wachtwoord wijzigen.
+alter table public.vault add column if not exists admin_salt text;
+alter table public.vault add column if not exists admin_hash text;
+
 alter table public.vault enable row level security;  -- zonder policies: niemand kan de tabel direct lezen
 revoke all on table public.vault from public, anon, authenticated;
 
@@ -38,7 +42,8 @@ end $$;
 create or replace function public.vault_info() returns json
 language sql security definer set search_path = '' stable as $$
   select coalesce(
-    (select json_build_object('exists', true, 'salt', salt, 'iter', iter) from public.vault where id = 1),
+    (select json_build_object('exists', true, 'salt', salt, 'iter', iter,
+       'admin', admin_hash is not null, 'admin_salt', admin_salt) from public.vault where id = 1),
     json_build_object('exists', false));
 $$;
 
@@ -79,12 +84,30 @@ begin
   return nv;
 end $$;
 
--- Wachtwoord wijzigen: alles opnieuw versleuteld opslaan met nieuwe salt en nieuw toegangsbewijs.
-create or replace function public.vault_rekey(p_token text, p_salt text, p_iter integer, p_new_token text, p_data text, p_version bigint) returns bigint
+-- Beheerderswachtwoord instellen (alleen de allereerste keer; daarna alleen via SQL te wissen, zie onderaan).
+create or replace function public.vault_set_admin(p_token text, p_admin_salt text, p_admin_token text) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform public._vault_check(p_token);
+  if length(p_admin_token) <> 64 then raise exception 'invalid_input'; end if;
+  update public.vault set admin_salt = p_admin_salt,
+    admin_hash = encode(sha256(convert_to(p_admin_token, 'UTF8')), 'hex')
+  where id = 1 and admin_hash is null;
+  if not found then raise exception 'admin_exists'; end if;
+end $$;
+
+-- Wachtwoord wijzigen: alleen met het beheerderswachtwoord. Alles wordt opnieuw versleuteld opgeslagen.
+drop function if exists public.vault_rekey(text, text, integer, text, text, bigint);
+create or replace function public.vault_rekey(p_token text, p_admin_token text, p_salt text, p_iter integer, p_new_token text, p_data text, p_version bigint) returns bigint
 language plpgsql security definer set search_path = '' as $$
 declare nv bigint;
 begin
   perform public._vault_check(p_token);
+  if not exists (select 1 from public.vault where id = 1 and admin_hash is not null
+                 and admin_hash = encode(sha256(convert_to(coalesce(p_admin_token, ''), 'UTF8')), 'hex')) then
+    perform pg_sleep(1);
+    raise exception 'invalid_admin';
+  end if;
   if length(p_new_token) <> 64 or p_iter < 100000 then raise exception 'invalid_input'; end if;
   update public.vault set salt = p_salt, iter = p_iter,
     token_hash = encode(sha256(convert_to(p_new_token, 'UTF8')), 'hex'),
@@ -101,13 +124,18 @@ revoke all on function public.vault_info() from public;
 revoke all on function public.vault_create(text, integer, text, text) from public;
 revoke all on function public.vault_load(text, bigint) from public;
 revoke all on function public.vault_save(text, text, bigint) from public;
-revoke all on function public.vault_rekey(text, text, integer, text, text, bigint) from public;
+revoke all on function public.vault_set_admin(text, text, text) from public;
+revoke all on function public.vault_rekey(text, text, text, integer, text, text, bigint) from public;
 grant execute on function public.vault_info() to anon, authenticated;
 grant execute on function public.vault_create(text, integer, text, text) to anon, authenticated;
 grant execute on function public.vault_load(text, bigint) to anon, authenticated;
 grant execute on function public.vault_save(text, text, bigint) to anon, authenticated;
-grant execute on function public.vault_rekey(text, text, integer, text, text, bigint) to anon, authenticated;
+grant execute on function public.vault_set_admin(text, text, text) to anon, authenticated;
+grant execute on function public.vault_rekey(text, text, text, integer, text, text, bigint) to anon, authenticated;
 
 -- Wachtwoord kwijt? Dan kan niemand de gegevens meer lezen. Kluis wissen (daarna in de app
 -- een nieuw wachtwoord kiezen en de back-up terugzetten):
 --   delete from public.vault;
+--
+-- Beheerderswachtwoord kwijt? Wissen (daarna in de app opnieuw instellen):
+--   update public.vault set admin_hash = null, admin_salt = null;
