@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; worker-src blob: https://cdnjs.cloudflare.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https: http://localhost:* http://127.0.0.1:* https://cdnjs.cloudflare.com; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; worker-src blob: https://cdnjs.cloudflare.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src https: http://localhost:* http://127.0.0.1:* https://cdnjs.cloudflare.com; form-action 'none'; base-uri 'none'">
 <title>Antwoorden Adviesdrogisterij.nl</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -54,6 +54,7 @@ section[data-tab].active { display: block; }
 @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
 .card + .card { margin-top: 16px; }
+.grid > .card + .card { margin-top: 0; }
 .card h2 { font-size: 18px; font-weight: 800; color: var(--heading); margin: 0 0 10px; }
 label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
 label:first-child { margin-top: 0; }
@@ -64,6 +65,8 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); ou
 #note { min-height: 110px; }
 #reply { min-height: 460px; }
 #instructions { min-height: 420px; font-size: 14px; }
+.sigbox { min-height: 100px; max-height: 320px; overflow: auto; background: #fff; color: #1c1e1f; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: 11pt Calibri, Arial, sans-serif; }
+.sigbox:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .row > * { flex: 1 1 140px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -173,7 +176,7 @@ body.locked > header, body.locked > main { display: none; }
       <div class="inboxHead">
         <h2>Inbox <span class="note" id="inboxWho" style="font-weight:400"></span></h2>
         <div class="actions" style="margin:0;align-items:center">
-          <label style="display:flex;gap:6px;align-items:center;margin:0;cursor:pointer"><input type="checkbox" id="unreadOnly" style="width:auto;margin:0" checked> Alleen ongelezen</label>
+          <label style="display:flex;gap:6px;align-items:center;margin:0;cursor:pointer"><input type="checkbox" id="unreadOnly" style="width:auto;margin:0"> Alleen ongelezen</label>
           <button class="btn" id="inboxRefresh">Vernieuwen</button>
         </div>
       </div>
@@ -257,6 +260,11 @@ body.locked > header, body.locked > main { display: none; }
       <p class="note">Dit is het "karakter" van de assistent. Je kunt hier de instructies uit je oude ChatGPT-GPT plakken. Wordt automatisch opgeslagen.</p>
       <label for="signature">Ondertekening</label>
       <textarea id="signature" style="min-height:80px"></textarea>
+      <label for="mailSig">Handtekening onder concepten in je mailbox (zoals in Outlook)</label>
+      <div id="mailSig" class="sigbox" contenteditable="true" role="textbox" aria-multiline="true"></div>
+      <p class="note">Open in Outlook een verzonden mail, selecteer je handtekening, kopieer (Ctrl + C) en plak hem hierboven (Ctrl + V). Opmaak en links blijven behouden; plaatjes alleen als ze op internet staan (https). Deze handtekening komt onder elk concept dat de app in je mailbox zet. Staat de groet al in je handtekening? Maak het veld Ondertekening hierboven dan leeg: de AI zet dan zelf geen groet meer onder het antwoord.</p>
+      <div class="actions"><button class="btn" id="sigClear" type="button">Handtekening wissen</button></div>
+      <div class="status" id="sigStatus"></div>
       <label for="instructions">Instructies</label>
       <textarea id="instructions"></textarea>
       <div class="actions">
@@ -413,7 +421,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.10.1';
+const APP_VERSION = '1.11.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -915,6 +923,43 @@ $('instructions').value = instructions;
 $('signature').value = signature;
 $('instructions').addEventListener('input', e => { instructions = e.target.value; store.set('instructions', instructions); setStatus($('instrStatus'), 'Opgeslagen.'); });
 $('signature').addEventListener('input', e => { signature = e.target.value; store.set('signature', signature); });
+// Handtekening voor concepten (HTML, bijv. geplakt uit Outlook). Opschonen: geen scripts, alleen https-plaatjes.
+function cleanSig(html) {
+  const d = new DOMParser().parseFromString(html || '', 'text/html');
+  let dropped = 0;
+  d.querySelectorAll('script,style,meta,link,iframe,object,embed,form,input,button,textarea,select,title,xml').forEach(n => n.remove());
+  const walker = d.createTreeWalker(d.body, NodeFilter.SHOW_COMMENT); const comments = [];
+  while (walker.nextNode()) comments.push(walker.currentNode);
+  comments.forEach(c => c.remove());
+  d.body.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(a => {
+      const n = a.name.toLowerCase();
+      if (n.startsWith('on') || n === 'class' || n === 'id' || ((n === 'href' || n === 'src') && /^\s*javascript:/i.test(a.value))) el.removeAttribute(a.name);
+    });
+    if (el.tagName === 'IMG' && !/^https:\/\//i.test(el.getAttribute('src') || '')) { el.remove(); dropped++; }
+  });
+  return { html: d.body.innerHTML.trim().slice(0, 60000), dropped };
+}
+// Tekstversie van de handtekening (voor mailprogramma's zonder opmaak), met behoud van regels
+function sigToText(html) {
+  if (!html) return '';
+  const d = new DOMParser().parseFromString(html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|tr|li|h[1-6]|table)>/gi, '$&\n'), 'text/html');
+  return (d.body.textContent || '').replace(/\u00a0/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+let mailSig = store.get('mailSig', '');
+$('mailSig').innerHTML = cleanSig(mailSig).html;
+let sigTimer;
+$('mailSig').addEventListener('input', () => {
+  clearTimeout(sigTimer);
+  sigTimer = setTimeout(() => {
+    const r = cleanSig($('mailSig').innerHTML);
+    mailSig = $('mailSig').innerText.trim() ? r.html : '';
+    store.set('mailSig', mailSig);
+    setStatus($('sigStatus'), r.dropped ? `Opgeslagen. Let op: ${r.dropped} plaatje${r.dropped === 1 ? '' : 's'} kon niet worden overgenomen (staat niet op internet). Zet je logo online (https) of laat het weg.` : 'Handtekening opgeslagen.', !!r.dropped);
+  }, 600);
+});
+$('mailSig').addEventListener('blur', () => { $('mailSig').innerHTML = cleanSig($('mailSig').innerHTML).html; });
+$('sigClear').addEventListener('click', () => { $('mailSig').innerHTML = ''; mailSig = ''; store.set('mailSig', ''); setStatus($('sigStatus'), 'Handtekening gewist.'); });
 $('loadInstr').addEventListener('click', () => $('instrFile').click());
 $('instrFile').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;
@@ -1216,8 +1261,8 @@ GOEDGEKEURD ANTWOORD: ${e.reply.slice(0, 2500)}`).join('\n')}
 VOOR DIT ANTWOORD
 - Toon: ${tone}.
 - Taal: ${lang}.
-- Sluit af met deze ondertekening (vertaal alleen als het antwoord niet in het Nederlands is):
-${signature}
+${signature.trim() ? `- Sluit af met deze ondertekening (vertaal alleen als het antwoord niet in het Nederlands is):
+${signature}` : '- Sluit het antwoord af zonder groet en zonder naam: de handtekening met groet wordt er automatisch onder gezet.'}
 - Vandaag is het ${new Date().toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}.`;
 }
 
@@ -1463,6 +1508,7 @@ const mailOn = () => !!mailCfg().enabled && window.vaultMode === 'server';
 let currentMsg = null, inboxMsgs = [], inboxLoaded = 0;
 function renderMail() {
   $('mailEnabled').checked = !!mailCfg().enabled;
+  $('unreadOnly').checked = !!mailCfg().unreadOnly;
   $('mailEnabled').disabled = $('mailTest').disabled = window.vaultMode !== 'server';
   $('mailServerOnly').hidden = window.vaultMode === 'server';
   $('inboxCard').hidden = !mailOn();
@@ -1498,7 +1544,7 @@ async function loadInbox() {
   } catch (e) { setStatus(st, e.message, true); }
 }
 $('inboxRefresh').addEventListener('click', loadInbox);
-$('unreadOnly').addEventListener('change', loadInbox);
+$('unreadOnly').addEventListener('change', () => { mailCfg().unreadOnly = $('unreadOnly').checked; saveSettings(); loadInbox(); });
 // Terug in het venster en de lijst is ouder dan 3 minuten: vanzelf vernieuwen
 window.addEventListener('focus', () => { if (mailOn() && Date.now() - inboxLoaded > 3 * 60000) loadInbox(); });
 $('inboxList').addEventListener('click', async e => {
@@ -1524,7 +1570,7 @@ $('draftBtn').addEventListener('click', async () => {
   if (n && !confirm(`Er ${n === 1 ? 'staat nog 1 controlepunt' : 'staan nog ' + n + ' controlepunten'} open. Toch als concept in je mailbox zetten?`)) return;
   setStatus(st, 'Concept opslaan in je mailbox…');
   try {
-    const r = await window.mailApi('draft', { uid: currentMsg.uid, text });
+    const r = await window.mailApi('draft', { uid: currentMsg.uid, text, signatureHtml: mailSig, signatureText: sigToText(mailSig) });
     const learned = learnFromCopy();
     setStatus(st, `Concept staat klaar in de map "${r.folder}" (aan ${r.to}). Open je mailprogramma om het te verzenden.` + (learned ? ' Onthouden als voorbeeld.' : ''));
   } catch (e) { setStatus(st, 'Concept opslaan mislukt: ' + e.message, true); }
@@ -1534,7 +1580,7 @@ renderMail(); if (mailOn()) loadInbox();
 // ---------- back-up ----------
 $('exportBtn').addEventListener('click', () => {
   const { apiKey, ...safe } = settings;
-  const blob = new Blob([JSON.stringify({ version: 1, settings: safe, instructions, signature, kb, lessons }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ version: 1, settings: safe, instructions, signature, mailSig, kb, lessons }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = `antwoorden-adviesdrogisterij-${new Date().toISOString().slice(0, 10)}.json`;
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -1548,6 +1594,7 @@ $('importFile').addEventListener('change', async e => {
     if (d.settings) settings = Object.assign(settings, d.settings, { apiKey: settings.apiKey });
     if (d.instructions) instructions = d.instructions;
     if (d.signature) signature = d.signature;
+    if (typeof d.mailSig === 'string') { mailSig = d.mailSig; store.set('mailSig', mailSig); $('mailSig').innerHTML = cleanSig(mailSig).html; }
     if (Array.isArray(d.kb)) kb = d.kb;
     if (Array.isArray(d.lessons)) { lessons = d.lessons; store.set('lessons', lessons); renderLearned(); }
     store.set('settings', settings); store.set('instructions', instructions); store.set('signature', signature); saveKb();
@@ -1613,6 +1660,7 @@ window.onVaultReload = () => {
   examples = store.get('examples', []); lessons = store.get('lessons', []); renderLearned(); renderMail();
   if (document.activeElement !== $('instructions')) $('instructions').value = instructions;
   if (document.activeElement !== $('signature')) $('signature').value = signature;
+  mailSig = store.get('mailSig', ''); if (document.activeElement !== $('mailSig')) $('mailSig').innerHTML = cleanSig(mailSig).html;
   renderSettings(); renderKb(); renderHistory();
 };
 

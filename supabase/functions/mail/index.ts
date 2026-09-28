@@ -205,7 +205,18 @@ function address(name: string, addr: string) {
 }
 const escHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
-function buildReply(orig: Awaited<ReturnType<typeof readMessage>>, replyText: string) {
+// Handtekening (HTML uit Outlook): gevaarlijke onderdelen eruit, alleen plaatjes van internet (https)
+function cleanSignature(html: string) {
+  return html.slice(0, 60000)
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<(script|style|iframe|object|embed|form|meta|link|title|xml)\b[\s\S]*?(<\/\1>|\/?>)/gi, '')
+    .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/(href|src)\s*=\s*("\s*javascript:[^"]*"|'\s*javascript:[^']*')/gi, '')
+    .replace(/<img\b(?![^>]*\bsrc\s*=\s*["']https:\/\/)[^>]*>/gi, '');
+}
+type Signature = { html?: string; text?: string };
+
+function buildReply(orig: Awaited<ReturnType<typeof readMessage>>, replyText: string, sig: Signature = {}) {
   const fromAddr = env('MAIL_FROM') || env('IMAP_USER');
   const fromName = env('MAIL_FROM_NAME') || 'Adviesdrogisterij.nl';
   const to = orig.replyTo[0] || orig.from;
@@ -219,11 +230,15 @@ function buildReply(orig: Awaited<ReturnType<typeof readMessage>>, replyText: st
   const intro = `Op ${when ? when + ' ' : ''}schreef ${who}:`;
   const reply = replyText.replace(/\r/g, '').trim();
   const quoted = orig.text.slice(0, 10000);
-  const plain = `${reply}\n\n${intro}\n${quoted.split('\n').map((l) => '> ' + l).join('\n')}\n`.replace(/\n/g, '\r\n');
+  const sigText = (sig.text || '').replace(/\r/g, '').trim().slice(0, 5000);
+  const sigHtml = cleanSignature(sig.html || '').trim();
+  const plain = `${reply}${sigText ? '\n\n' + sigText : ''}\n\n${intro}\n${quoted.split('\n').map((l) => '> ' + l).join('\n')}\n`.replace(/\n/g, '\r\n');
   const html = '<html><body>' +
     '<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">' +
     reply.split(/\n{2,}/).map((p) => `<p style="margin:0 0 12px">${escHtml(p).replace(/\n/g, '<br>')}</p>`).join('') +
-    '</div><br>' +
+    '</div>' +
+    (sigHtml ? `<div>${sigHtml}</div>` : sigText ? `<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">${escHtml(sigText).replace(/\n/g, '<br>')}</div>` : '') +
+    '<br>' +
     `<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">${escHtml(intro)}</div>` +
     `<blockquote style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">${escHtml(quoted).replace(/\n/g, '<br>')}</blockquote>` +
     '</body></html>';
@@ -246,10 +261,10 @@ function buildReply(orig: Awaited<ReturnType<typeof readMessage>>, replyText: st
   ].join('\r\n');
 }
 
-async function makeDraft(c: ImapFlow, uid: number, replyText: string) {
+async function makeDraft(c: ImapFlow, uid: number, replyText: string, sig: Signature) {
   const orig = await readMessage(c, uid);
   const folder = await draftsPath(c);
-  await c.append(folder, buildReply(orig, replyText), ['\\Draft', '\\Seen'], new Date());
+  await c.append(folder, buildReply(orig, replyText, sig), ['\\Draft', '\\Seen'], new Date());
   return { ok: true, folder, to: (orig.replyTo[0] || orig.from).address, subject: orig.subject };
 }
 
@@ -280,7 +295,8 @@ Deno.serve(async (req) => {
       const text = String(body.text || '').trim();
       if (!text) throw new UserError('Het antwoord is leeg.');
       if (text.length > 50000) throw new UserError('Het antwoord is te lang.');
-      return json(await withImap((c) => makeDraft(c, uid, text)));
+      const sig: Signature = { html: String(body.signatureHtml || ''), text: String(body.signatureText || '') };
+      return json(await withImap((c) => makeDraft(c, uid, text, sig)));
     }
     throw new UserError('Onbekende actie.');
   } catch (e) {

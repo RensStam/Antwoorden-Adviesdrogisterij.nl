@@ -66,6 +66,10 @@ Eenmalig instellen (±10 minuten):
 
 De gegevens voor stap 4 vind je in je mailprogramma bij de accountinstellingen (inkomende server, IMAP).
 
+**Handtekening**: Outlook zet zijn handtekening niet onder concepten die van de server komen. Plak je handtekening daarom één keer in de app (tabblad *Instructies* → *Handtekening onder concepten*); die komt dan onder elk concept. Staat de groet al in je handtekening, maak het veld *Ondertekening* dan leeg, dan zet de AI zelf geen groet meer onder het antwoord.
+
+Na een update van `supabase/functions/mail/index.ts`: plak de nieuwe code in Supabase bij de functie `mail` (Code → Deploy).
+
 ## Beveiliging
 
 - **End-to-end versleuteld**: instructies, kennisbank, geschiedenis en de API-sleutel worden in de browser versleuteld met je wachtwoord (PBKDF2 met 600.000 rondes + AES-256-GCM). De server (Supabase) krijgt alleen onleesbare data en nooit het wachtwoord.
