@@ -45,6 +45,21 @@ Werken twee mensen tegelijk, dan voegt de app de wijzigingen samen. Wijzigingen 
 
 De workflow `.github/workflows/keep-supabase-awake.yml` houdt het gratis project wakker (Supabase pauzeert anders na een week zonder gebruik).
 
+## Koppeling met Outlook (Microsoft 365)
+
+Mails worden direct uit je mailbox geladen en het antwoord komt als concept in de mailconversatie te staan (map Concepten); je klikt in Outlook alleen nog op Verzenden. Inloggen gaat via Microsoft zelf (OAuth); je mailwachtwoord komt nooit in de app en de toegang staat alleen in de huidige browsersessie.
+
+Eenmalig een app-registratie maken (±5 minuten, als beheerder van je Microsoft 365-omgeving):
+
+1. Ga naar https://entra.microsoft.com → **Applications → App registrations → New registration**.
+2. Naam: `Antwoorden Adviesdrogisterij`. Supported account types: **Accounts in this organizational directory only**.
+3. Redirect URI: platform **Single-page application (SPA)**, adres: `https://rensstam.github.io/Antwoorden-Adviesdrogisterij.nl/` (precies zoals het in de app bij Instellingen staat). Klik **Register**.
+4. Kopieer op de overzichtspagina de **Application (client) ID** en **Directory (tenant) ID**.
+5. **API permissions → Add a permission → Microsoft Graph → Delegated**: `Mail.ReadWrite`, `Mail.ReadWrite.Shared`, `User.Read`, `offline_access`. Klik daarna op **Grant admin consent**.
+6. Vul in de app bij **Instellingen → Koppeling met Outlook** de twee ID's in, en bij *Mailbox* eventueel de gedeelde mailbox (bijv. `info@adviesdrogisterij.nl`). Klik **Verbinden met Outlook**.
+
+Voor een gedeelde mailbox moet je eigen Microsoft-account in Exchange *Volledige toegang* tot die mailbox hebben.
+
 ## Beveiliging
 
 - **End-to-end versleuteld**: instructies, kennisbank, geschiedenis en de API-sleutel worden in de browser versleuteld met je wachtwoord (PBKDF2 met 600.000 rondes + AES-256-GCM). De server (Supabase) krijgt alleen onleesbare data en nooit het wachtwoord.
