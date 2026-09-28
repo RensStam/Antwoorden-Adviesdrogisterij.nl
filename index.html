@@ -739,25 +739,46 @@ function friendlyError(e) {
       : 'geen verbinding. Controleer het API-adres en je internet. (Sommige aanbieders blokkeren browsers; probeer dan OpenRouter.)';
   }
   if (/^401|^403/.test(m)) return 'API-sleutel ongeldig of zonder rechten. ' + m;
-  if (/^404/.test(m)) return 'model of adres niet gevonden. Controleer de modelnaam. ' + m;
+  if (/^404/.test(m)) return (/deprecated/i.test(m) ? 'dit model is uitgefaseerd door de aanbieder. Kies een ander model in de lijst. ' : 'model of adres niet gevonden. Controleer de modelnaam. ') + m;
   if (/^429/.test(m)) return 'te veel verzoeken of tegoed op. ' + m;
   return m;
 }
+const unsupported = {}; // per model: instellingen die het model weigerde (onthouden, scheelt tijd)
 async function chat(messages, onToken) {
   if (!isConfigured()) throw new Error('Nog geen AI-model ingesteld (zie Instellingen).');
   controller = new AbortController();
-  const send = body => fetch(settings.baseUrl.replace(/\/$/, '') + '/chat/completions', {
-    method: 'POST', headers: authHeaders(), signal: controller.signal, body: JSON.stringify(body),
-  });
-  const body = { model: settings.model, messages, temperature: settings.temp, stream: true };
-  let r = await send(body);
-  if (!r.ok) {
+  // OpenAI: de nieuwere Responses API (de nieuwste modellen werken alleen daarmee); anderen: chat/completions
+  const responses = settings.provider === 'openai';
+  const url = settings.baseUrl.replace(/\/$/, '') + (responses ? '/responses' : '/chat/completions');
+  let body;
+  if (responses) {
+    body = { model: settings.model, instructions: messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n'),
+      input: messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })),
+      temperature: settings.temp, stream: true, store: false };
+    if (/^(gpt-5|o\d)/.test(settings.model)) body.reasoning = { effort: 'low' }; // sneller antwoord
+  } else {
+    body = { model: settings.model, messages, temperature: settings.temp, stream: true };
+  }
+  // Niet elk model kent elke instelling (bijv. temperatuur, redeneerniveau, streaming): weglaten en opnieuw proberen
+  const skip = unsupported[settings.model] || (unsupported[settings.model] = new Set());
+  skip.forEach(k => { if (k === 'stream') body.stream = false; else delete body[k]; });
+  let r;
+  for (let attempt = 0; ; attempt++) {
+    r = await fetch(url, { method: 'POST', headers: authHeaders(), signal: controller.signal, body: JSON.stringify(body) });
+    if (r.ok) break;
     const msg = await errText(r);
-    // Sommige modellen (bijv. GPT-5) accepteren geen temperatuur: dan opnieuw zonder
-    if (r.status !== 400 || !/temperature/i.test(msg)) throw new Error(msg);
-    delete body.temperature;
-    r = await send(body);
-    if (!r.ok) throw new Error(await errText(r));
+    const drop = r.status === 400 && attempt < 4 && ['temperature', 'reasoning', 'store', 'stream'].find(k => k in body && body[k] !== false && new RegExp(k, 'i').test(msg));
+    if (!drop) throw new Error(msg);
+    skip.add(drop);
+    if (drop === 'stream') body.stream = false; else delete body[drop];
+  }
+  if (!body.stream) {
+    const j = await r.json();
+    const t = responses
+      ? (j.output || []).flatMap(o => o.content || []).filter(c => c.type === 'output_text').map(c => c.text).join('')
+      : j.choices?.[0]?.message?.content || '';
+    if (t) onToken(t.replace(/<think>[\s\S]*?<\/think>/g, ''));
+    return;
   }
   const reader = r.body.getReader(), dec = new TextDecoder();
   let buf = '', thinking = false;
@@ -773,6 +794,12 @@ async function chat(messages, onToken) {
       if (data === '[DONE]') return;
       let j; try { j = JSON.parse(data); } catch { continue; }
       if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+      if (responses) {
+        if (j.type === 'response.output_text.delta' && j.delta) onToken(j.delta);
+        else if (j.type === 'response.failed') throw new Error(j.response?.error?.message || 'het model gaf een fout');
+        else if (j.type === 'response.completed' || j.type === 'response.incomplete') return;
+        continue;
+      }
       let t = j.choices?.[0]?.delta?.content;
       if (!t) continue;
       // "denk"-tekst van redeneermodellen (bijv. Qwen3) niet tonen
