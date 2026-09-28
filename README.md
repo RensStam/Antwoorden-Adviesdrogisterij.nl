@@ -67,6 +67,7 @@ Voor een gedeelde mailbox moet je eigen Microsoft-account in Exchange *Volledige
 - **Beheerderswachtwoord**: alleen de beheerder kan het gewone wachtwoord wijzigen (de server controleert dat). Instellen via *Instellingen → Wachtwoord en beheer*. Kwijt? In Supabase: `update public.vault set admin_hash = null, admin_salt = null;` en daarna opnieuw instellen.
 - **Wachtwoord kwijt?** Dan is de data niet te herstellen. Wis de kluis in Supabase (SQL: `delete from public.vault;`), kies in de app een nieuw wachtwoord en zet je back-up terug.
 - **Automatisch vergrendelen** na 30 minuten zonder gebruik, of direct via de knop *Vergrendelen*.
+- **Onthoud mij op deze computer (30 dagen)**: vink je dit aan bij het inloggen, dan opent de app op die computer direct. Niet het wachtwoord maar een afgeleide sleutel wordt bewaard, versleuteld met een niet-uitleesbare apparaatsleutel van de browser. *Vergrendelen* of een wachtwoordwijziging wist het weer. Gebruik het niet op een computer die anderen ook gebruiken.
 - **Geen bedrijfsgegevens in deze repository**: instructies en kennisbank staan niet in de code.
 - **Content Security Policy**: de pagina mag alleen verbinding maken met de AI-aanbieder, de server en de PDF-lezer van cdnjs.
 - **Privacy (AVG)**: klantmails gaan naar de gekozen AI-aanbieder. Mistral verwerkt in de EU; met Ollama blijft alles op je eigen computer. Optioneel worden e-mailadressen, telefoonnummers en IBANs gemaskeerd.

@@ -61,7 +61,7 @@ textarea, input, select { width: 100%; background: var(--field); color: var(--te
 textarea { resize: vertical; }
 textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 #email { min-height: 220px; }
-#note { min-height: 70px; }
+#note { min-height: 110px; }
 #reply { min-height: 340px; }
 #instructions { min-height: 420px; font-size: 14px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -130,6 +130,7 @@ body.locked > header, body.locked > main { display: none; }
         <label for="pw2">Herhaal wachtwoord</label>
         <input id="pw2" type="password" autocomplete="new-password">
       </div>
+      <label id="rememberWrap" style="display:flex;gap:8px;align-items:center;margin-top:12px;color:var(--text);cursor:pointer"><input type="checkbox" id="remember" style="width:auto;margin:0"> Onthoud mij op deze computer (30 dagen)</label>
       <div class="actions"><button class="btn primary" id="lockBtn" type="submit">Ontgrendelen</button></div>
     </form>
     <div class="status" id="lockStatus"></div>
@@ -371,7 +372,7 @@ body.locked > header, body.locked > main { display: none; }
       </div>
       <div class="card">
         <h2>Wachtwoord en beheer</h2>
-        <p class="note">Alle gegevens (ook je API-sleutel) zijn versleuteld met het wachtwoord. De app vergrendelt zich na 30 minuten zonder gebruik.</p>
+        <p class="note">Alle gegevens (ook je API-sleutel) zijn versleuteld met het wachtwoord. De app vergrendelt zich na 30 minuten zonder gebruik, behalve op een computer waar je "Onthoud mij" hebt aangevinkt. Met de knop Vergrendelen vergeet een computer je weer.</p>
         <div id="adminOld" hidden><p class="note" style="color:var(--warn)">Voer eerst het bijgewerkte <b>supabase/setup.sql</b> uit in Supabase (SQL Editor → Run). Daarna kun je hier een beheerderswachtwoord instellen.</p></div>
         <div id="adminSetup" hidden>
           <p class="note">Stel een <b>beheerderswachtwoord</b> in dat alleen jij kent. Alleen daarmee kan het gewone wachtwoord worden gewijzigd; collega's kunnen dat dan niet. Kies een ander wachtwoord dan het gewone.</p>
@@ -418,7 +419,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.9.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -439,17 +440,56 @@ let key = null, salt = null, iter = ITER, token = null, version = 0, saveTimer =
 const dirty = new Set();
 
 // Lokale kluis (oude opzet): sleutel rechtstreeks uit het wachtwoord
-async function deriveLocal(pw, saltBytes, it = ITER) {
-  const base = await crypto.subtle.importKey('raw', te.encode(pw), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: saltBytes, iterations: it, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+// (deriveBits(256) + import geeft precies dezelfde sleutel als deriveKey: bestaande kluizen blijven werken)
+async function deriveLocalRaw(pw, saltBytes, it = ITER) {
+  const base = await crypto.subtle.importKey('raw', te.encode(pw), 'PBKDF2', false, ['deriveBits']);
+  return crypto.subtle.deriveBits({ name: 'PBKDF2', salt: saltBytes, iterations: it, hash: 'SHA-256' }, base, 256);
 }
+const aesFromRaw = raw => crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+async function deriveLocal(pw, saltBytes, it = ITER) { const raw = await deriveLocalRaw(pw, saltBytes, it); secret = raw; return aesFromRaw(raw); }
 // Server-kluis: 512 bits uit het wachtwoord; de ene helft versleutelt, de andere helft is het toegangsbewijs
 // voor de server. De server krijgt dus nooit het wachtwoord of de versleutelsleutel.
 async function deriveServer(pw, saltBytes, it) {
   const base = await crypto.subtle.importKey('raw', te.encode(pw), 'PBKDF2', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: saltBytes, iterations: it, hash: 'SHA-256' }, base, 512);
-  return { aes: await crypto.subtle.importKey('raw', bits.slice(0, 32), 'AES-GCM', false, ['encrypt', 'decrypt']), token: hex(bits.slice(32)) };
+  return fromServerRaw(bits);
 }
+async function fromServerRaw(bits) { return { aes: await aesFromRaw(bits.slice(0, 32)), token: hex(bits.slice(32)), raw: bits }; }
+
+// ---------- "Onthoud mij op deze computer" ----------
+// Niet het wachtwoord, maar de afgeleide sleutel wordt bewaard, versleuteld met een apparaatsleutel die de browser
+// niet laat uitlezen (niet-exporteerbaar, in IndexedDB). "Vergrendelen" of een wachtwoordwijziging wist dit weer.
+const REMEMBER_DAYS = 30;
+let secret = null, remembered = false; // ruwe sleutel van deze sessie (alleen in het geheugen)
+function idb() {
+  return new Promise((ok, fail) => { const r = indexedDB.open('ads-remember', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => ok(r.result); r.onerror = () => fail(r.error); });
+}
+async function idbDo(mode, fn) {
+  const db = await idb();
+  return new Promise((ok, fail) => {
+    const tx = db.transaction('kv', mode), req = fn(tx.objectStore('kv'));
+    tx.oncomplete = () => { db.close(); ok(req && req.result); };
+    tx.onerror = () => { db.close(); fail(tx.error); };
+  });
+}
+async function rememberSave() {
+  if (!secret) return;
+  try {
+    const dk = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, dk, secret);
+    await idbDo('readwrite', st => st.put({ dk, iv, data, salt: b64(salt), exp: Date.now() + REMEMBER_DAYS * 864e5 }, 'me'));
+  } catch {}
+}
+async function rememberLoad(expectSalt) {
+  try {
+    const e = await idbDo('readonly', st => st.get('me'));
+    if (!e) return null;
+    if (e.exp < Date.now() || e.salt !== expectSalt) { await rememberForget(); return null; } // verlopen of wachtwoord gewijzigd
+    return await crypto.subtle.decrypt({ name: 'AES-GCM', iv: e.iv }, e.dk, e.data);
+  } catch { return null; }
+}
+async function rememberForget() { try { await idbDo('readwrite', st => st.delete('me')); } catch {} }
 async function encrypt(obj, k = key) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, te.encode(JSON.stringify(obj)));
@@ -523,7 +563,7 @@ function passwordChangedElsewhere() {
   key = null; dirty.clear();
   setSync('⚠ Wachtwoord elders gewijzigd', true);
   alert('Het wachtwoord is op een andere computer gewijzigd. Log opnieuw in met het nieuwe wachtwoord. (Een wijziging van de laatste seconden op deze computer is mogelijk niet opgeslagen.)');
-  location.reload();
+  rememberForget().finally(() => location.reload());
 }
 // Wijzigingen van een andere computer binnenhalen als je terugkomt in dit venster
 async function refreshFromServer() {
@@ -543,7 +583,7 @@ async function adminToken(pw, saltBytes) {
 // Gewoon wachtwoord wijzigen. Bij centrale opslag alleen met het beheerderswachtwoord (de server controleert dat).
 window.vaultChangePassword = async (pw, adminPw) => {
   const newSalt = crypto.getRandomValues(new Uint8Array(16));
-  if (!SERVER) { salt = newSalt; iter = ITER; key = await deriveLocal(pw, salt); await persist(); return; }
+  if (!SERVER) { salt = newSalt; iter = ITER; key = await deriveLocal(pw, salt); await persist(); if (remembered) await rememberSave(); return; }
   if (!info.admin || !info.admin_salt) throw new Error('Stel eerst een beheerderswachtwoord in.');
   clearTimeout(saveTimer); if (dirty.size) await persist(); // eerst openstaande wijzigingen opslaan
   const at = await adminToken(adminPw, unb64(info.admin_salt));
@@ -552,7 +592,8 @@ window.vaultChangePassword = async (pw, adminPw) => {
   try {
     version = await rpc('vault_rekey', { p_token: token, p_admin_token: at, p_salt: b64(newSalt), p_iter: ITER, p_new_token: d.token, p_data: data, p_version: version });
   } catch (e) { if (/invalid_admin/.test(e.message)) throw new Error('Onjuist beheerderswachtwoord.'); throw e; }
-  salt = newSalt; iter = ITER; key = d.aes; token = d.token;
+  salt = newSalt; iter = ITER; key = d.aes; token = d.token; secret = d.raw;
+  if (remembered) await rememberSave();
 };
 window.vaultSetAdmin = async adminPw => {
   const aSalt = crypto.getRandomValues(new Uint8Array(16));
@@ -571,6 +612,8 @@ async function lockNow(url) {
   if (typeof url === 'string') location.replace(url); else location.reload();
 }
 window.vaultLock = lockNow;
+// Knop "Vergrendelen": ook deze computer vergeten (daarna is het wachtwoord weer nodig)
+window.vaultLockForget = async () => { await rememberForget(); lockNow(); };
 
 // ---------- vergrendelscherm ----------
 let mode; // 'unlock' | 'setup' | 'migrate'
@@ -596,6 +639,9 @@ async function prepare() {
   $('lockBtn').textContent = { unlock: 'Ontgrendelen', setup: 'Wachtwoord instellen', migrate: 'Naar de server zetten' }[mode];
   $('pw1').setAttribute('autocomplete', mode === 'setup' ? 'new-password' : 'current-password');
   $('pw1').focus();
+  let pref = '1'; try { pref = localStorage.getItem('ads_remember_pref') ?? '1'; } catch {}
+  $('remember').checked = pref === '1';
+  await tryRemembered();
 }
 prepare();
 
@@ -621,7 +667,7 @@ $('lockForm').addEventListener('submit', async e => {
       salt = unb64(info.salt); iter = info.iter;
       const d = await deriveServer(pw, salt, iter);
       const res = await rpc('vault_load', { p_token: d.token, p_known_version: null });
-      key = d.aes; token = d.token; version = res.version;
+      key = d.aes; token = d.token; version = res.version; secret = d.raw;
       window.VAULT = await decrypt(res.data);
     } else {
       // Nieuw, of bestaande gegevens van deze computer overzetten
@@ -638,7 +684,7 @@ $('lockForm').addEventListener('submit', async e => {
       salt = crypto.getRandomValues(new Uint8Array(16)); iter = ITER;
       if (SERVER) {
         const d = await deriveServer(pw, salt, iter);
-        key = d.aes; token = d.token;
+        key = d.aes; token = d.token; secret = d.raw;
         version = await rpc('vault_create', { p_salt: b64(salt), p_iter: iter, p_token: token, p_data: await encrypt(window.VAULT) });
         info = await rpc('vault_info');
         localStorage.removeItem(VAULT_KEY); // staat nu veilig op de server
@@ -654,23 +700,59 @@ $('lockForm').addEventListener('submit', async e => {
     return;
   }
   $('pw1').value = $('pw2').value = '';
+  remembered = $('remember').checked;
+  try { localStorage.setItem('ads_remember_pref', remembered ? '1' : '0'); } catch {}
+  if (remembered) await rememberSave(); else await rememberForget();
+  finishUnlock();
+});
+function finishUnlock() {
   $('lock').remove();
   document.body.classList.remove('locked');
   window.bootApp();
-  setSync(SERVER ? '✓ Centraal opgeslagen' : 'Alleen in deze browser');
+  setSync((SERVER ? '✓ Centraal opgeslagen' : 'Alleen in deze browser') + (remembered ? ' · onthouden' : ''));
   window.addEventListener('focus', refreshFromServer);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshFromServer(); });
   window.addEventListener('beforeunload', e => { if (dirty.size || saving) { persist(); e.preventDefault(); e.returnValue = ''; } });
-  // Automatisch vergrendelen bij inactiviteit
+  // Automatisch vergrendelen bij inactiviteit; niet als deze computer onthouden wordt (dan opent hij toch direct weer)
+  if (remembered) return;
   let idle;
   const reset = () => { clearTimeout(idle); idle = setTimeout(lockNow, IDLE_MS); };
   ['click', 'keydown', 'mousemove', 'touchstart'].forEach(ev => document.addEventListener(ev, reset, { passive: true }));
   reset();
-});
+}
+// Automatisch ontgrendelen als deze computer onthouden is
+async function tryRemembered() {
+  if (mode !== 'unlock' || !window.crypto || !crypto.subtle || !window.indexedDB) return;
+  const raw = await rememberLoad(SERVER ? info.salt : localVault.salt);
+  if (!raw) return;
+  const st = $('lockStatus');
+  st.textContent = 'Automatisch inloggen…'; $('lockBtn').disabled = true;
+  try {
+    if (SERVER) {
+      salt = unb64(info.salt); iter = info.iter;
+      const d = await fromServerRaw(raw);
+      const res = await rpc('vault_load', { p_token: d.token, p_known_version: null });
+      key = d.aes; token = d.token; version = res.version; secret = raw;
+      window.VAULT = await decrypt(res.data);
+    } else {
+      salt = unb64(localVault.salt); iter = localVault.iter || ITER;
+      const k = await aesFromRaw(raw);
+      window.VAULT = await decrypt(JSON.stringify(localVault), k);
+      key = k; secret = raw;
+    }
+  } catch (err) {
+    key = null; $('lockBtn').disabled = false;
+    if (err.code === 'badpw' || err.name === 'OperationError') { await rememberForget(); st.textContent = 'Het wachtwoord is gewijzigd. Log opnieuw in.'; }
+    else st.textContent = 'Automatisch inloggen mislukt: ' + err.message + ' Log in met je wachtwoord.';
+    return;
+  }
+  remembered = true; st.textContent = '';
+  finishUnlock();
+}
 $('forgot').addEventListener('click', e => {
   e.preventDefault();
   if (!confirm('Weet je het zeker? Alle instructies, kennisbank, geschiedenis en de API-sleutel in deze browser worden gewist.')) return;
-  localStorage.removeItem(VAULT_KEY); location.reload();
+  localStorage.removeItem(VAULT_KEY); rememberForget().finally(() => location.reload());
 });
 })();
 </script>
@@ -1525,7 +1607,8 @@ $('importFile').addEventListener('change', async e => {
 
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
-$('lockNow').addEventListener('click', () => window.vaultLock());
+$('lockNow').addEventListener('click', () => window.vaultLockForget());
+$('lockNow').title = 'Vergrendelen en deze computer vergeten (daarna is het wachtwoord weer nodig)';
 
 // Nieuwe versie online? De browser bewaart pagina's soms even; dan een melding tonen
 const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
