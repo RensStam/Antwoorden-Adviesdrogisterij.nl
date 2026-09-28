@@ -22,13 +22,13 @@
   :root:not([data-theme="light"]) {
     --bg: #141716; --panel: #1d2120; --text: #e8ebe9; --muted: #a0a8a4; --line: #2f3533; --heading: #8cbcf0;
     --accent: #9ccc3c; --accent-hover: #b0dc55; --accent-ink: #11160a; --accent-soft: #24301a; --warn: #f0b35a; --warn-soft: #33281a;
-    --err: #ff8a80; --err-soft: #3a1f1d; --field: #181c1b; --nav: #9e1212; --nav-active: #7e0d0d; --logo: #ff6b5b;
+    --err: #ff8a80; --err-soft: #3a1f1d; --field: #181c1b; --nav: #ff6b5b; --nav-active: #7e0d0d; --logo: #ff6b5b;
   }
 }
 :root[data-theme="dark"] {
   --bg: #141716; --panel: #1d2120; --text: #e8ebe9; --muted: #a0a8a4; --line: #2f3533; --heading: #8cbcf0;
   --accent: #9ccc3c; --accent-hover: #b0dc55; --accent-ink: #11160a; --accent-soft: #24301a; --warn: #f0b35a; --warn-soft: #33281a;
-  --err: #ff8a80; --err-soft: #3a1f1d; --field: #181c1b; --nav: #9e1212; --nav-active: #7e0d0d; --logo: #ff6b5b;
+  --err: #ff8a80; --err-soft: #3a1f1d; --field: #181c1b; --nav: #ff6b5b; --nav-active: #7e0d0d; --logo: #ff6b5b;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 Nunito, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -36,16 +36,16 @@ header { background: var(--panel); }
 .promo { background: var(--brand-lime); color: #fff; font-size: 13px; font-weight: 700; text-align: center; padding: 5px 16px; }
 .logo { font-family: Merriweather, Georgia, serif; font-style: italic; font-weight: 700; color: var(--logo); font-size: 26px; letter-spacing: -.3px; line-height: 1.1; }
 .logo-sub { font-family: Merriweather, Georgia, serif; font-style: italic; color: var(--heading); font-size: 16px; margin-left: 8px; }
-.navbar { background: var(--nav); margin-top: 12px; }
+.navbar { background: var(--panel); margin-top: 8px; border-bottom: 1px solid var(--line); }
 .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
 .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0 0; flex-wrap: wrap; }
 h1 { margin: 0; font-weight: 400; }
 h1 small { color: var(--muted); font-family: Nunito, system-ui, sans-serif; font-style: normal; font-weight: 400; font-size: 12px; margin-left: 6px; }
 nav { display: flex; gap: 2px; overflow-x: auto; }
-nav button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 11px 14px 8px; color: #fff; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
-nav button:hover { background: var(--nav-active); }
-nav button.active { background: var(--nav-active); border-bottom-color: #fff; font-weight: 800; }
-main { padding: 20px 0 40px; }
+nav button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px 8px; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+nav button:hover { color: var(--nav); }
+nav button.active { color: var(--nav); border-bottom-color: var(--nav); font-weight: 800; }
+main.wrap { padding-top: 20px; padding-bottom: 40px; }
 section[data-tab] { display: none; }
 section[data-tab].active { display: block; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -355,7 +355,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.1';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
