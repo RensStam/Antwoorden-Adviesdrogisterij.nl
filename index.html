@@ -259,7 +259,7 @@ body.locked > header, body.locked > main { display: none; }
         <select id="provider">
           <option value="mistral">Mistral (Frankrijk, EU — open modellen)</option>
           <option value="ollama">Ollama (lokaal op je eigen pc, gratis en privé)</option>
-          <option value="openrouter">OpenRouter (alle open modellen, o.a. Llama, Qwen, Mistral)</option>
+          <option value="openrouter">OpenRouter (de grootste open modellen: gpt-oss, DeepSeek, Kimi, Qwen)</option>
           <option value="groq">Groq (zeer snel, Llama-modellen)</option>
           <option value="custom">Anders (OpenAI-compatibel adres)</option>
         </select>
@@ -444,9 +444,9 @@ const PROVIDERS = {
   ollama: { url: 'http://localhost:11434/v1', model: 'gemma3:12b', key: false,
     models: ['gemma3:12b', 'gemma3:27b', 'qwen3:14b', 'mistral-small3.2', 'llama3.1:8b'],
     help: 'Installeer Ollama (ollama.com), voer uit: "ollama pull gemma3:12b". Zet de omgevingsvariabelen OLLAMA_ORIGINS=* en OLLAMA_CONTEXT_LENGTH=32768 en herstart Ollama, anders blokkeert de browser de verbinding. Vereist een pc met minimaal 16 GB geheugen.' },
-  openrouter: { url: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct', key: true,
-    models: ['meta-llama/llama-3.3-70b-instruct', 'mistralai/mistral-small-3.2-24b-instruct', 'qwen/qwen3-235b-a22b-2507', 'google/gemma-3-27b-it'],
-    help: 'Maak een account op openrouter.ai → Keys. Eén sleutel voor honderden open modellen. Klik "Modellen ophalen" voor de actuele lijst.' },
+  openrouter: { url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-oss-120b', key: true,
+    models: ['openai/gpt-oss-120b', 'deepseek/deepseek-chat-v3.1', 'moonshotai/kimi-k2', 'qwen/qwen3-235b-a22b-2507', 'z-ai/glm-4.6', 'mistralai/mistral-small-3.2-24b-instruct', 'meta-llama/llama-3.3-70b-instruct'],
+    help: 'Maak een account op openrouter.ai → Keys (tegoed opwaarderen, bijv. € 10). Eén sleutel voor alle grote open modellen. Het dichtst bij ChatGPT: gpt-oss-120b (het open model van OpenAI zelf), DeepSeek, Kimi K2 en Qwen3. Klik "Modellen ophalen" voor de actuele namen.' },
   groq: { url: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', key: true,
     models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
     help: 'Maak een account op console.groq.com → API Keys. Heeft een gratis laag.' },
