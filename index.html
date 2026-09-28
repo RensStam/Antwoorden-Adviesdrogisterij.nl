@@ -260,6 +260,7 @@ body.locked > header, body.locked > main { display: none; }
           <option value="mistral">Mistral (Frankrijk, EU — open modellen)</option>
           <option value="ollama">Ollama (lokaal op je eigen pc, gratis en privé)</option>
           <option value="openrouter">OpenRouter (de grootste open modellen: gpt-oss, DeepSeek, Kimi, Qwen)</option>
+          <option value="openai">OpenAI (de modellen van ChatGPT, betaald per gebruik)</option>
           <option value="groq">Groq (zeer snel, Llama-modellen)</option>
           <option value="custom">Anders (OpenAI-compatibel adres)</option>
         </select>
@@ -447,6 +448,9 @@ const PROVIDERS = {
   openrouter: { url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-oss-120b', key: true,
     models: ['openai/gpt-oss-120b', 'deepseek/deepseek-chat-v3.1', 'moonshotai/kimi-k2', 'qwen/qwen3-235b-a22b-2507', 'z-ai/glm-4.6', 'mistralai/mistral-small-3.2-24b-instruct', 'meta-llama/llama-3.3-70b-instruct'],
     help: 'Maak een account op openrouter.ai → Keys (tegoed opwaarderen, bijv. € 10). Eén sleutel voor alle grote open modellen. Het dichtst bij ChatGPT: gpt-oss-120b (het open model van OpenAI zelf), DeepSeek, Kimi K2 en Qwen3. Klik "Modellen ophalen" voor de actuele namen.' },
+  openai: { url: 'https://api.openai.com/v1', model: 'gpt-5-mini', key: true,
+    models: ['gpt-5', 'gpt-5-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o'],
+    help: 'Dezelfde modellen als ChatGPT. Maak een sleutel op platform.openai.com → API keys en zet er tegoed op (los van een ChatGPT Plus-abonnement). Klik "Modellen ophalen" voor de actuele namen. Let op: verwerking in de VS.' },
   groq: { url: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', key: true,
     models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
     help: 'Maak een account op console.groq.com → API Keys. Heeft een gratis laag.' },
@@ -729,11 +733,19 @@ function friendlyError(e) {
 async function chat(messages, onToken) {
   if (!isConfigured()) throw new Error('Nog geen AI-model ingesteld (zie Instellingen).');
   controller = new AbortController();
-  const r = await fetch(settings.baseUrl.replace(/\/$/, '') + '/chat/completions', {
-    method: 'POST', headers: authHeaders(), signal: controller.signal,
-    body: JSON.stringify({ model: settings.model, messages, temperature: settings.temp, stream: true }),
+  const send = body => fetch(settings.baseUrl.replace(/\/$/, '') + '/chat/completions', {
+    method: 'POST', headers: authHeaders(), signal: controller.signal, body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(await errText(r));
+  const body = { model: settings.model, messages, temperature: settings.temp, stream: true };
+  let r = await send(body);
+  if (!r.ok) {
+    const msg = await errText(r);
+    // Sommige modellen (bijv. GPT-5) accepteren geen temperatuur: dan opnieuw zonder
+    if (r.status !== 400 || !/temperature/i.test(msg)) throw new Error(msg);
+    delete body.temperature;
+    r = await send(body);
+    if (!r.ok) throw new Error(await errText(r));
+  }
   const reader = r.body.getReader(), dec = new TextDecoder();
   let buf = '', thinking = false;
   for (;;) {
