@@ -319,8 +319,8 @@ body.locked > header, body.locked > main { display: none; }
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
 // Met SERVER_URL/SERVER_KEY ingevuld staat de kluis centraal in Supabase (end-to-end versleuteld: de server ziet
 // alleen onleesbare data). Leeg = alleen opslaan in deze browser.
-const SERVER_URL = '';   // bijv. https://abcdefgh.supabase.co
-const SERVER_KEY = '';   // de "anon public" / "publishable" sleutel van Supabase (die mag openbaar zijn)
+const SERVER_URL = 'https://ustyuxgcfqjfrchjosll.supabase.co';   // bijv. https://abcdefgh.supabase.co
+const SERVER_KEY = 'sb_publishable_MFUg-KXxhTltpLYYxFFknw_GIhoaDM8';   // de "anon public" / "publishable" sleutel van Supabase (die mag openbaar zijn)
 (() => {
 'use strict';
 const VAULT_KEY = 'ads_vault', ITER = 600000, MIN_PW = 10, IDLE_MS = 30 * 60 * 1000;
