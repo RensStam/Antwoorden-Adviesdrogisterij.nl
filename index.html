@@ -92,7 +92,7 @@ body.locked > header, body.locked > main { display: none; }
 <body class="locked">
 <div id="lock">
   <div class="card">
-    <h2 id="lockTitle">Antwoorden Adviesdrogisterij.nl</h2>
+    <h2 id="lockTitle">Antwoorden Adviesdrogisterij.nl <small class="appVersion" style="font-weight:400;font-size:13px;color:var(--muted)"></small></h2>
     <p class="note" id="lockIntro"></p>
     <form id="lockForm" autocomplete="off">
       <label for="pw1">Wachtwoord</label>
@@ -112,7 +112,7 @@ body.locked > header, body.locked > main { display: none; }
 <header>
   <div class="wrap">
     <div class="top">
-      <h1>Antwoorden <small>Adviesdrogisterij.nl</small></h1>
+      <h1>Antwoorden <small>Adviesdrogisterij.nl</small> <small class="appVersion" title="Versie van de app"></small></h1>
       <div class="right"><span class="note" id="syncState" style="margin:0"></span><span class="pill" id="modelPill"></span><button class="btn" id="lockNow" type="button">Vergrendelen</button></div>
     </div>
     <nav>
@@ -316,6 +316,10 @@ body.locked > header, body.locked > main { display: none; }
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
+// Versienummer: bij elke wijziging ophogen (groot.klein.fix)
+const APP_VERSION = '1.1.0';
+document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
+
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
 // Met SERVER_URL/SERVER_KEY ingevuld staat de kluis centraal in Supabase (end-to-end versleuteld: de server ziet
 // alleen onleesbare data). Leeg = alleen opslaan in deze browser.

@@ -2,7 +2,7 @@
 
 Eigen "GPT" voor het beantwoorden van klantmails, met open AI-modellen (Mistral, Ollama, OpenRouter, Groq of elk OpenAI-compatibel adres). Vervangt de Custom GPT in ChatGPT.
 
-Eén bestand: `index.html`. Geen server, geen installatie.
+Eén bestand: `index.html`. Het versienummer staat rechts naast de titel (constante `APP_VERSION` in `index.html`) en wordt bij elke wijziging opgehoogd.
 
 ## Gebruik
 
