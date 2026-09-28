@@ -104,14 +104,16 @@ body.locked > header, body.locked > main { display: none; }
       <div class="actions"><button class="btn primary" id="lockBtn" type="submit">Ontgrendelen</button></div>
     </form>
     <div class="status" id="lockStatus"></div>
-    <p class="note" id="forgotWrap" hidden style="margin-top:18px">Wachtwoord vergeten? Het is niet te herstellen. <a href="#" id="forgot" style="color:var(--err)">Alles wissen en opnieuw beginnen</a> (maak daarna je back-up terug).</p>
+    <p class="note" id="forgotWrap" hidden style="margin-top:18px">Wachtwoord vergeten? Het is niet te herstellen.
+      <span id="forgotLocal"><a href="#" id="forgot" style="color:var(--err)">Alles wissen en opnieuw beginnen</a> (maak daarna je back-up terug).</span>
+      <span id="forgotServer" hidden>De centrale opslag kan alleen door de beheerder worden gewist (zie README), daarna zet je je back-up terug.</span></p>
   </div>
 </div>
 <header>
   <div class="wrap">
     <div class="top">
       <h1>Antwoorden <small>Adviesdrogisterij.nl</small></h1>
-      <div class="right"><span class="pill" id="modelPill"></span><button class="btn" id="lockNow" type="button">Vergrendelen</button></div>
+      <div class="right"><span class="note" id="syncState" style="margin:0"></span><span class="pill" id="modelPill"></span><button class="btn" id="lockNow" type="button">Vergrendelen</button></div>
     </div>
     <nav>
       <button data-go="compose" class="active">Antwoord maken</button>
@@ -285,7 +287,7 @@ body.locked > header, body.locked > main { display: none; }
       </div>
       <div class="card">
         <h2>Back-up</h2>
-        <p class="note">Alles (instructies, kennisbank, instellingen) staat alleen in deze browser. Maak een back-up om het naar een andere computer of collega over te zetten. De API-sleutel wordt niet meegenomen.</p>
+        <p class="note">Download af en toe een back-up van je instructies, kennisbank en instellingen (zonder API-sleutel). Handig als extra zekerheid, of om over te zetten.</p>
         <div class="actions">
           <button class="btn" id="exportBtn">Back-up downloaden</button>
           <button class="btn" id="importBtn">Back-up terugzetten</button>
@@ -295,7 +297,7 @@ body.locked > header, body.locked > main { display: none; }
       </div>
       <div class="card">
         <h2>Wachtwoord wijzigen</h2>
-        <p class="note">Alle gegevens in deze browser (ook je API-sleutel) zijn versleuteld met je wachtwoord. De app vergrendelt zich na 30 minuten zonder gebruik.</p>
+        <p class="note">Alle gegevens (ook je API-sleutel) zijn versleuteld met je wachtwoord. Bij centrale opslag geldt een nieuw wachtwoord meteen op alle computers. De app vergrendelt zich na 30 minuten zonder gebruik.</p>
         <label for="npw1">Nieuw wachtwoord (minimaal 10 tekens)</label>
         <input id="npw1" type="password" autocomplete="new-password">
         <label for="npw2">Herhaal nieuw wachtwoord</label>
@@ -314,80 +316,207 @@ body.locked > header, body.locked > main { display: none; }
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
-// ---------- Kluis: alle opgeslagen gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
+// ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
+// Met SERVER_URL/SERVER_KEY ingevuld staat de kluis centraal in Supabase (end-to-end versleuteld: de server ziet
+// alleen onleesbare data). Leeg = alleen opslaan in deze browser.
+const SERVER_URL = '';   // bijv. https://abcdefgh.supabase.co
+const SERVER_KEY = '';   // de "anon public" / "publishable" sleutel van Supabase (die mag openbaar zijn)
 (() => {
 'use strict';
 const VAULT_KEY = 'ads_vault', ITER = 600000, MIN_PW = 10, IDLE_MS = 30 * 60 * 1000;
+const SERVER = !!(SERVER_URL && SERVER_KEY);
 const te = new TextEncoder(), td = new TextDecoder();
-const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const b64 = buf => { let s = ''; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode(...a.subarray(i, i + 0x8000)); return btoa(s); };
 const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const hex = buf => [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
 const $ = id => document.getElementById(id);
-let key = null, salt = null, saveTimer = null;
+let key = null, salt = null, iter = ITER, token = null, version = 0, saveTimer = null, saving = false;
+const dirty = new Set();
 
-async function derive(pw, saltBytes) {
+// Lokale kluis (oude opzet): sleutel rechtstreeks uit het wachtwoord
+async function deriveLocal(pw, saltBytes, it = ITER) {
   const base = await crypto.subtle.importKey('raw', te.encode(pw), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: saltBytes, iterations: ITER, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: saltBytes, iterations: it, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
-function readRaw() { try { return JSON.parse(localStorage.getItem(VAULT_KEY)); } catch { return null; } }
-async function persist() {
+// Server-kluis: 512 bits uit het wachtwoord; de ene helft versleutelt, de andere helft is het toegangsbewijs
+// voor de server. De server krijgt dus nooit het wachtwoord of de versleutelsleutel.
+async function deriveServer(pw, saltBytes, it) {
+  const base = await crypto.subtle.importKey('raw', te.encode(pw), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: saltBytes, iterations: it, hash: 'SHA-256' }, base, 512);
+  return { aes: await crypto.subtle.importKey('raw', bits.slice(0, 32), 'AES-GCM', false, ['encrypt', 'decrypt']), token: hex(bits.slice(32)) };
+}
+async function encrypt(obj, k = key) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, te.encode(JSON.stringify(window.VAULT)));
-  try { localStorage.setItem(VAULT_KEY, JSON.stringify({ v: 1, iter: ITER, salt: b64(salt), iv: b64(iv), data: b64(data) })); }
-  catch { alert('Opslaan mislukt: de browseropslag is vol (±5 MB). Verwijder of verklein documenten in de kennisbank.'); }
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, te.encode(JSON.stringify(obj)));
+  return JSON.stringify({ iv: b64(iv), data: b64(data) });
 }
-window.vaultSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 300); };
+async function decrypt(str, k = key) {
+  const o = JSON.parse(str);
+  return JSON.parse(td.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(o.iv) }, k, unb64(o.data))));
+}
+async function rpc(fn, args = {}) {
+  const headers = { 'Content-Type': 'application/json', apikey: SERVER_KEY };
+  if (SERVER_KEY.startsWith('eyJ')) headers.Authorization = 'Bearer ' + SERVER_KEY; // oude JWT-sleutels
+  let r;
+  try { r = await fetch(`${SERVER_URL.replace(/\/$/, '')}/rest/v1/rpc/${fn}`, { method: 'POST', headers, body: JSON.stringify(args) }); }
+  catch { const e = new Error('Geen verbinding met de server. Controleer je internet.'); e.code = 'offline'; throw e; }
+  const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {}
+  if (!r.ok) {
+    const m = (j && (j.message || j.hint)) || t;
+    const e = new Error(m); e.code = /invalid_token/.test(m) ? 'badpw' : /version_conflict/.test(m) ? 'conflict' : 'server'; throw e;
+  }
+  return j;
+}
+function readLocal() { try { return JSON.parse(localStorage.getItem(VAULT_KEY)); } catch { return null; } }
+
+// ---------- opslagstatus rechtsboven ----------
+function setSync(text, err) { const el = $('syncState'); if (el) { el.textContent = text; el.style.color = err ? 'var(--err)' : 'var(--muted)'; } }
+
+async function persist() {
+  if (!key) return;
+  if (!SERVER) {
+    const o = JSON.parse(await encrypt(window.VAULT));
+    try { localStorage.setItem(VAULT_KEY, JSON.stringify({ v: 1, iter, salt: b64(salt), iv: o.iv, data: o.data })); setSync('Opgeslagen in deze browser'); }
+    catch { alert('Opslaan mislukt: de browseropslag is vol (±5 MB). Verwijder of verklein documenten in de kennisbank.'); }
+    return;
+  }
+  if (saving) { window.vaultSave(); return; }
+  saving = true; setSync('Opslaan…');
+  const keys = [...dirty]; dirty.clear();
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try { version = await rpc('vault_save', { p_token: token, p_data: await encrypt(window.VAULT), p_version: version }); break; }
+      catch (e) {
+        if (e.code !== 'conflict' || attempt > 2) throw e;
+        await mergeRemote(keys); // iemand anders heeft intussen opgeslagen: samenvoegen en opnieuw
+      }
+    }
+    setSync('✓ Opgeslagen op server');
+  } catch (e) {
+    keys.forEach(k => dirty.add(k));
+    setSync('⚠ Niet opgeslagen, opnieuw proberen…', true);
+    clearTimeout(saveTimer); saveTimer = setTimeout(persist, 10000);
+  } finally { saving = false; }
+}
+// Nieuwste versie van de server ophalen; onze eigen, nog niet opgeslagen wijzigingen gaan voor
+async function mergeRemote(localKeys) {
+  const res = await rpc('vault_load', { p_token: token, p_known_version: null });
+  const remote = await decrypt(res.data);
+  for (const k of localKeys) {
+    if (k === 'history') {
+      const seen = new Map();
+      [...(window.VAULT.history || []), ...(remote.history || [])].forEach(h => seen.set(h.t, h));
+      remote.history = [...seen.values()].sort((a, b) => b.t - a.t).slice(0, 30);
+    } else remote[k] = window.VAULT[k];
+  }
+  window.VAULT = remote; version = res.version;
+  if (window.onVaultReload) window.onVaultReload();
+}
+// Wijzigingen van een andere computer binnenhalen als je terugkomt in dit venster
+async function refreshFromServer() {
+  if (!SERVER || !key || saving || dirty.size) return;
+  try {
+    const res = await rpc('vault_load', { p_token: token, p_known_version: version });
+    if (res && res.data) { window.VAULT = await decrypt(res.data); version = res.version; if (window.onVaultReload) window.onVaultReload(); setSync('✓ Bijgewerkt vanaf server'); }
+  } catch {}
+}
+
+window.vaultSave = k => { if (k) dirty.add(k); clearTimeout(saveTimer); saveTimer = setTimeout(persist, SERVER ? 800 : 300); };
 window.vaultChangePassword = async pw => {
-  salt = crypto.getRandomValues(new Uint8Array(16));
-  key = await derive(pw, salt);
-  await persist();
+  const newSalt = crypto.getRandomValues(new Uint8Array(16));
+  if (!SERVER) { salt = newSalt; iter = ITER; key = await deriveLocal(pw, salt); await persist(); return; }
+  const d = await deriveServer(pw, newSalt, ITER);
+  const data = await encrypt(window.VAULT, d.aes);
+  version = await rpc('vault_rekey', { p_token: token, p_salt: b64(newSalt), p_iter: ITER, p_new_token: d.token, p_data: data, p_version: version });
+  salt = newSalt; iter = ITER; key = d.aes; token = d.token;
 };
 window.MIN_PW = MIN_PW;
+window.vaultMode = SERVER ? 'server' : 'local';
 
-function lockNow() { clearTimeout(saveTimer); if (key) persist().finally(() => location.reload()); else location.reload(); }
+async function lockNow() {
+  clearTimeout(saveTimer);
+  if (key && (!SERVER || dirty.size)) { try { await persist(); } catch {} }
+  location.reload();
+}
 window.vaultLock = lockNow;
 
-const existing = readRaw();
-const setup = !existing;
-$('lockIntro').textContent = setup
-  ? `Kies een wachtwoord (minimaal ${MIN_PW} tekens). Hiermee worden je API-sleutel, instructies en kennisbank versleuteld op deze computer. Het wachtwoord is niet te herstellen, dus bewaar het goed.`
-  : 'Voer je wachtwoord in om te ontgrendelen.';
-$('pw2Wrap').hidden = !setup;
-$('forgotWrap').hidden = setup;
-$('lockBtn').textContent = setup ? 'Wachtwoord instellen' : 'Ontgrendelen';
-$('pw1').setAttribute('autocomplete', setup ? 'new-password' : 'current-password');
-$('pw1').focus();
+// ---------- vergrendelscherm ----------
+let mode; // 'unlock' | 'setup' | 'migrate'
+let info = null;
+const localVault = readLocal();
+async function prepare() {
+  const st = $('lockStatus');
+  if (SERVER) {
+    st.textContent = 'Verbinden met de server…'; $('lockBtn').disabled = true;
+    try { info = await rpc('vault_info'); st.textContent = ''; }
+    catch (e) { st.textContent = e.message + ' Klik op de knop om het opnieuw te proberen.'; st.classList.add('err'); $('lockBtn').disabled = false; $('lockBtn').textContent = 'Opnieuw verbinden'; mode = 'retry'; return; }
+    $('lockBtn').disabled = false; st.classList.remove('err');
+    mode = info.exists ? 'unlock' : localVault ? 'migrate' : 'setup';
+  } else mode = localVault ? 'unlock' : 'setup';
+  $('lockIntro').textContent = {
+    unlock: SERVER ? 'Voer het wachtwoord in. Je gegevens worden centraal en versleuteld op de server bewaard, dus je kunt op elke computer inloggen.' : 'Voer je wachtwoord in om te ontgrendelen.',
+    setup: `Kies een wachtwoord (minimaal ${MIN_PW} tekens). Hiermee worden je API-sleutel, instructies en kennisbank versleuteld${SERVER ? ' en centraal op de server opgeslagen' : ' op deze computer'}. Het wachtwoord is niet te herstellen, dus bewaar het goed.`,
+    migrate: 'De centrale opslag is nog leeg. Voer je huidige wachtwoord in: de gegevens op deze computer worden dan versleuteld naar de server gezet, zodat je ze op elke computer hebt.',
+  }[mode];
+  $('pw2Wrap').hidden = mode !== 'setup';
+  $('forgotWrap').hidden = mode === 'setup';
+  $('forgotLocal').hidden = SERVER; $('forgotServer').hidden = !SERVER;
+  $('lockBtn').textContent = { unlock: 'Ontgrendelen', setup: 'Wachtwoord instellen', migrate: 'Naar de server zetten' }[mode];
+  $('pw1').setAttribute('autocomplete', mode === 'setup' ? 'new-password' : 'current-password');
+  $('pw1').focus();
+}
+prepare();
 
 let fails = 0;
 $('lockForm').addEventListener('submit', async e => {
   e.preventDefault();
+  if (mode === 'retry') { prepare(); return; }
   const st = $('lockStatus'), pw = $('pw1').value;
   st.classList.remove('err');
   if (!window.crypto || !crypto.subtle) { st.textContent = 'Deze browser ondersteunt geen versleuteling hier. Open de pagina via https of als bestand in Chrome/Edge.'; st.classList.add('err'); return; }
-  if (setup) {
+  if (mode === 'setup') {
     if (pw.length < MIN_PW) { st.textContent = `Gebruik minimaal ${MIN_PW} tekens.`; st.classList.add('err'); return; }
     if (pw !== $('pw2').value) { st.textContent = 'De wachtwoorden zijn niet gelijk.'; st.classList.add('err'); return; }
   }
   $('lockBtn').disabled = true; st.textContent = 'Even geduld…';
   try {
-    if (setup) {
-      // Oude, onversleutelde gegevens (vorige versie) meenemen en daarna wissen
-      window.VAULT = {};
-      for (const k of ['settings', 'instructions', 'signature', 'kb', 'history']) {
-        const v = localStorage.getItem('ads_' + k);
-        if (v !== null) { try { window.VAULT[k] = JSON.parse(v); } catch {} localStorage.removeItem('ads_' + k); }
-      }
-      await window.vaultChangePassword(pw);
-    } else {
-      salt = unb64(existing.salt);
-      const k = await derive(pw, salt);
-      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(existing.iv) }, k, unb64(existing.data));
-      window.VAULT = JSON.parse(td.decode(plain));
+    if (mode === 'unlock' && !SERVER) {
+      salt = unb64(localVault.salt); iter = localVault.iter || ITER;
+      const k = await deriveLocal(pw, salt, iter);
+      window.VAULT = await decrypt(JSON.stringify(localVault), k);
       key = k;
+    } else if (mode === 'unlock') {
+      salt = unb64(info.salt); iter = info.iter;
+      const d = await deriveServer(pw, salt, iter);
+      const res = await rpc('vault_load', { p_token: d.token, p_known_version: null });
+      key = d.aes; token = d.token; version = res.version;
+      window.VAULT = await decrypt(res.data);
+    } else {
+      // Nieuw, of bestaande gegevens van deze computer overzetten
+      if (mode === 'migrate') {
+        const k = await deriveLocal(pw, unb64(localVault.salt), localVault.iter || ITER);
+        window.VAULT = await decrypt(JSON.stringify(localVault), k);
+      } else {
+        window.VAULT = {};
+        for (const k of ['settings', 'instructions', 'signature', 'kb', 'history']) { // heel oude, onversleutelde versie
+          const v = localStorage.getItem('ads_' + k);
+          if (v !== null) { try { window.VAULT[k] = JSON.parse(v); } catch {} localStorage.removeItem('ads_' + k); }
+        }
+      }
+      salt = crypto.getRandomValues(new Uint8Array(16)); iter = ITER;
+      if (SERVER) {
+        const d = await deriveServer(pw, salt, iter);
+        key = d.aes; token = d.token;
+        version = await rpc('vault_create', { p_salt: b64(salt), p_iter: iter, p_token: token, p_data: await encrypt(window.VAULT) });
+        localStorage.removeItem(VAULT_KEY); // staat nu veilig op de server
+      } else { key = await deriveLocal(pw, salt); await persist(); }
     }
-  } catch {
-    fails++;
-    await new Promise(r => setTimeout(r, Math.min(fails, 5) * 1000)); // vertraging tegen raden
-    st.textContent = 'Onjuist wachtwoord.'; st.classList.add('err');
+  } catch (err) {
+    key = null;
+    const wrongPw = err.code === 'badpw' || err.name === 'OperationError';
+    if (wrongPw) { fails++; await new Promise(r => setTimeout(r, Math.min(fails, 5) * 1000)); } // vertraging tegen raden
+    st.textContent = wrongPw ? 'Onjuist wachtwoord.' : 'Mislukt: ' + err.message;
+    st.classList.add('err');
     $('lockBtn').disabled = false; $('pw1').select();
     return;
   }
@@ -395,6 +524,10 @@ $('lockForm').addEventListener('submit', async e => {
   $('lock').remove();
   document.body.classList.remove('locked');
   window.bootApp();
+  setSync(SERVER ? '✓ Centraal opgeslagen' : 'Alleen in deze browser');
+  window.addEventListener('focus', refreshFromServer);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshFromServer(); });
+  window.addEventListener('beforeunload', e => { if (dirty.size || saving) { persist(); e.preventDefault(); e.returnValue = ''; } });
   // Automatisch vergrendelen bij inactiviteit
   let idle;
   const reset = () => { clearTimeout(idle); idle = setTimeout(lockNow, IDLE_MS); };
@@ -417,7 +550,7 @@ const DEFAULT_INSTRUCTIONS = `Je bent de klantenservice-assistent van Adviesdrog
 STIJL
 - Schrijf warm, behulpzaam en deskundig, zoals een ervaren drogist die de klant graag helpt.
 - Gebruik de u-vorm, tenzij de klant zelf duidelijk de je-vorm gebruikt.
-- Begin met een persoonlijke aanhef (bijv. "Beste mevrouw Jansen," of "Beste Peter,"). Is de naam onbekend: "Beste klant,".
+- Begin met een persoonlijke aanhef (bijv. "Beste Anna Jansen," of "Beste Peter,"; nooit meneer of mevrouw). Is de naam onbekend: "Beste klant,".
 - Bedank de klant kort voor het bericht, beantwoord daarna direct de vraag. Geen overbodige herhaling of wollige zinnen.
 - Korte alinea's. Gebruik alleen opsommingen als er echt meerdere stappen of punten zijn.
 - Sluit af met een behulpzame slotzin en de ondertekening.
@@ -462,7 +595,7 @@ const PROVIDERS = {
 // ---------- opslag ----------
 const store = {
   get(k, d) { return k in window.VAULT ? window.VAULT[k] : d; },
-  set(k, v) { window.VAULT[k] = v; window.vaultSave(); return true; },
+  set(k, v) { window.VAULT[k] = v; window.vaultSave(k); return true; },
 };
 const $ = id => document.getElementById(id);
 
@@ -961,6 +1094,16 @@ $('chPw').addEventListener('click', async () => {
   $('npw1').value = $('npw2').value = '';
   setStatus(st, 'Wachtwoord gewijzigd.');
 });
+
+// Nieuwere gegevens van de server (bijv. gewijzigd op een andere computer): opnieuw inlezen en tonen
+window.onVaultReload = () => {
+  settings = Object.assign(settings, store.get('settings', {}));
+  instructions = store.get('instructions', DEFAULT_INSTRUCTIONS); signature = store.get('signature', DEFAULT_SIGNATURE);
+  kb = store.get('kb', []); history = store.get('history', []);
+  if (document.activeElement !== $('instructions')) $('instructions').value = instructions;
+  if (document.activeElement !== $('signature')) $('signature').value = signature;
+  renderSettings(); renderKb(); renderHistory();
+};
 
 renderSettings(); renderKb(); renderHistory();
 };

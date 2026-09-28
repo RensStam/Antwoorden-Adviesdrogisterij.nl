@@ -1,0 +1,31 @@
+name: Keep Supabase awake
+
+# Houdt het gratis Supabase-project wakker. Supabase pauzeert free-tier projecten na ~7 dagen
+# zonder activiteit. Deze workflow vraagt elke dag één keer vault_info op (geeft alleen
+# "bestaat de kluis" terug, geen gegevens). Het adres en de publieke sleutel komen uit index.html.
+#
+# LET OP: GitHub schakelt geplande workflows uit na 60 dagen zonder activiteit in de repo.
+# Dan via het tabblad Actions deze workflow weer aanzetten of handmatig starten.
+
+on:
+  schedule:
+    - cron: "23 7 * * *"   # elke dag om 07:23 UTC
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ping Supabase
+        run: |
+          url=$(sed -n "s/^const SERVER_URL = '\([^']*\)'.*/\1/p" index.html)
+          key=$(sed -n "s/^const SERVER_KEY = '\([^']*\)'.*/\1/p" index.html)
+          if [ -z "$url" ] || [ -z "$key" ]; then echo "Geen server ingesteld in index.html; niets te doen."; exit 0; fi
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$url/rest/v1/rpc/vault_info" \
+            -H "apikey: $key" -H "Content-Type: application/json" -d '{}')
+          echo "Supabase antwoordde met HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::Onverwachte status $code: project mogelijk gepauzeerd of instellingen gewijzigd."
+            exit 1
+          fi

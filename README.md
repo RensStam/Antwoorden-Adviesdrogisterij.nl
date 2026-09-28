@@ -21,12 +21,30 @@ Documenten met het vinkje *Altijd volledig meesturen* gaan bij elke mail helemaa
 
 Upload een nieuwe versie met dezelfde bestandsnaam: de oude versie wordt automatisch vervangen. Of klik bij een document op *Nieuwe versie*.
 
+## Centrale opslag (Supabase)
+
+Zonder server bewaart de app alles alleen in de browser van één computer. Met een (gratis) Supabase-project staat alles centraal: op elke computer log je in met hetzelfde wachtwoord en zie je dezelfde instructies, kennisbank, geschiedenis en API-sleutel.
+
+Eenmalig instellen:
+
+1. Maak op supabase.com een **nieuw project** aan (los van PhytoForsan), regio bijv. *Central EU (Frankfurt)*.
+2. **SQL Editor → New query**: plak de inhoud van `supabase/setup.sql` en klik **Run**.
+3. **Project Settings → API**: kopieer de *Project URL* en de *publishable* (of *anon public*) sleutel. Deze sleutel mag openbaar zijn; de *secret / service_role* sleutel nooit delen.
+4. Vul beide in bovenaan het script in `index.html` (`SERVER_URL` en `SERVER_KEY`).
+5. Open de app op de computer waar je gegevens nu staan en voer je wachtwoord in: alles wordt versleuteld naar de server gezet. Daarna kun je op elke computer inloggen.
+
+Werken twee mensen tegelijk, dan voegt de app de wijzigingen samen. Wijzigingen van een andere computer verschijnen zodra je terugkomt in het venster.
+
+De workflow `.github/workflows/keep-supabase-awake.yml` houdt het gratis project wakker (Supabase pauzeert anders na een week zonder gebruik).
+
 ## Beveiliging
 
-- **Versleuteld opslaan**: instructies, kennisbank, geschiedenis en de API-sleutel worden alleen in je eigen browser bewaard, versleuteld met je wachtwoord (PBKDF2 met 600.000 rondes + AES-256-GCM). Zonder wachtwoord zijn ze onleesbaar.
+- **End-to-end versleuteld**: instructies, kennisbank, geschiedenis en de API-sleutel worden in de browser versleuteld met je wachtwoord (PBKDF2 met 600.000 rondes + AES-256-GCM). De server (Supabase) krijgt alleen onleesbare data en nooit het wachtwoord.
+- **Toegang tot de server** alleen met een toegangsbewijs dat uit het wachtwoord wordt afgeleid; de tabel zelf is niet leesbaar. Een fout wachtwoord geeft een vertraging tegen raden.
+- **Wachtwoord kwijt?** Dan is de data niet te herstellen. Wis de kluis in Supabase (SQL: `delete from public.vault;`), kies in de app een nieuw wachtwoord en zet je back-up terug.
 - **Automatisch vergrendelen** na 30 minuten zonder gebruik, of direct via de knop *Vergrendelen*.
-- **Geen bedrijfsgegevens in deze repository**: instructies en kennisbank staan niet in de code, alleen versleuteld in je browser.
-- **Content Security Policy**: de pagina mag alleen verbinding maken met de AI-aanbieder en de PDF-lezer van cdnjs.
+- **Geen bedrijfsgegevens in deze repository**: instructies en kennisbank staan niet in de code.
+- **Content Security Policy**: de pagina mag alleen verbinding maken met de AI-aanbieder, de server en de PDF-lezer van cdnjs.
 - **Privacy (AVG)**: klantmails gaan naar de gekozen AI-aanbieder. Mistral verwerkt in de EU; met Ollama blijft alles op je eigen computer. Optioneel worden e-mailadressen, telefoonnummers en IBANs gemaskeerd.
 - **Back-up**: *Instellingen → Back-up downloaden* (zonder API-sleutel). Bewaar dat bestand veilig; het is niet versleuteld.
 
