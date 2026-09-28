@@ -777,6 +777,8 @@ function mask(s) {
     .replace(/\b[A-Z]{2}\d{2}\s?[A-Z]{4}(\s?\d{4}){2}\s?\d{2}\b/gi, '[IBAN verborgen]')
     .replace(/(\+31|0031|\b0)[\s-]?\d(?:[\s-]?\d){8}\b/g, '[telefoon verborgen]');
 }
+// Vaste delen (instructies, kennisbank) eerst en wisselende delen achteraan:
+// dan kunnen aanbieders het begin hergebruiken (prompt caching), wat tot 90% goedkoper is.
 function buildSystem(knowledge) {
   const tone = { standaard: 'volgens de instructies', vriendelijk: 'vriendelijk en persoonlijk', zakelijk: 'zakelijk en formeel', kort: 'kort en bondig (maximaal zo\'n 5 zinnen)', empathisch: 'extra empathisch en begripvol; de klant is ontevreden' }[$('tone').value];
   const lang = $('lang').value === 'auto' ? 'dezelfde taal als de klant' : $('lang').value;
@@ -785,15 +787,15 @@ function buildSystem(knowledge) {
     : instructions;
   return `${instr}
 
+KENNISBANK (sjablonen en beleid; pas het juiste sjabloon toe als dat er is)
+${knowledge || '(De kennisbank is leeg. Verzin geen beleid; gebruik invulplekken [AANVULLEN: …] waar nodig.)'}
+
 VOOR DIT ANTWOORD
 - Toon: ${tone}.
 - Taal: ${lang}.
 - Sluit af met deze ondertekening (vertaal alleen als het antwoord niet in het Nederlands is):
 ${signature}
-- Vandaag is het ${new Date().toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}.
-
-KENNISBANK (sjablonen en beleid; pas het juiste sjabloon toe als dat er is)
-${knowledge || '(De kennisbank is leeg. Verzin geen beleid; gebruik invulplekken [AANVULLEN: …] waar nodig.)'}`;
+- Vandaag is het ${new Date().toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}.`;
 }
 
 async function run(messages) {
