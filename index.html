@@ -50,7 +50,7 @@ nav button.active { color: var(--nav); border-bottom-color: var(--nav); font-wei
 main.wrap { padding-top: 20px; padding-bottom: 40px; }
 section[data-tab] { display: none; }
 section[data-tab].active { display: block; }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
 .card + .card { margin-top: 16px; }
@@ -83,6 +83,7 @@ button.btn:disabled { opacity: .55; cursor: default; }
 .doc { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .doc:last-child { border-bottom: 0; }
 .doc .name { font-weight: 600; overflow-wrap: anywhere; }
+.doc > div:first-child { min-width: 0; }
 .doc .meta { font-size: 12px; color: var(--muted); }
 .doc .btns { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
 .doc .btns button { padding: 5px 10px; font-size: 13px; }
@@ -140,6 +141,7 @@ body.locked > header, body.locked > main { display: none; }
       <button data-go="compose" class="active">Antwoord maken</button>
       <button data-go="instructions">Instructies</button>
       <button data-go="knowledge">Kennisbank</button>
+      <button data-go="learned">Geleerd</button>
       <button data-go="history">Geschiedenis</button>
       <button data-go="settings">Instellingen</button>
     </nav>
@@ -203,8 +205,9 @@ body.locked > header, body.locked > main { display: none; }
         <div class="checks" id="checks" hidden></div>
         <label for="refine" style="margin-top:14px">Laat het aanpassen <span style="font-size:12px">(Enter = versturen, Shift + Enter = nieuwe regel)</span></label>
         <textarea id="refine" placeholder="Bijv.: noem ook de kortingscode ZORG10 en zeg dat de bestelling morgen wordt verzonden." style="min-height:110px"></textarea>
-        <div class="actions" style="margin-top:8px">
+        <div class="actions" style="margin-top:8px;align-items:center">
           <button class="btn primary" id="refineBtn">Aanpassen</button>
+          <label style="display:flex;gap:6px;align-items:center;margin:0;cursor:pointer"><input type="checkbox" id="rememberRule" style="width:auto;margin:0"> Onthoud dit als vaste regel voor alle antwoorden</label>
         </div>
         <div class="chips" id="quickChips">
           <button data-r="Maak het korter.">Korter</button>
@@ -268,11 +271,33 @@ body.locked > header, body.locked > main { display: none; }
     </div>
   </section>
 
+  <!-- GELEERD -->
+  <section data-tab="learned">
+    <div class="grid">
+      <div class="card">
+        <h2>Vaste regels</h2>
+        <p class="note">Regels die je de assistent hebt geleerd. Ze gelden voor alle antwoorden, naast je instructies. Toevoegen kan hier, of via "Onthoud dit als vaste regel" bij Laat het aanpassen.</p>
+        <div id="ruleList" style="margin-top:8px"></div>
+        <label for="newRule">Nieuwe regel</label>
+        <textarea id="newRule" style="min-height:70px" placeholder="Bijv.: Noem bij retourvragen altijd dat de retourkosten voor rekening van de klant zijn."></textarea>
+        <div class="actions"><button class="btn primary" id="addRule">Regel toevoegen</button></div>
+      </div>
+      <div class="card">
+        <h2>Voorbeelden van goede antwoorden</h2>
+        <p class="note">Elke keer dat je op <b>Kopiëren</b> klikt, wordt de mail met jouw definitieve antwoord (inclusief je eigen aanpassingen) onthouden. Bij een nieuwe mail krijgt de AI de meest vergelijkbare voorbeelden mee, zodat de antwoorden steeds beter bij jouw stijl passen. Mailadressen, telefoonnummers en IBANs worden daarbij altijd verborgen.</p>
+        <label style="display:flex;gap:8px;align-items:center;color:var(--text);cursor:pointer"><input type="checkbox" id="learnOn" style="width:auto;margin:0"> Automatisch leren bij Kopiëren</label>
+        <p class="note" id="exCount"></p>
+        <div id="exList" style="margin-top:8px"></div>
+        <div class="actions"><button class="btn" id="exClear">Alle voorbeelden wissen</button></div>
+      </div>
+    </div>
+  </section>
+
   <!-- GESCHIEDENIS -->
   <section data-tab="history">
     <div class="card">
       <h2>Laatste antwoorden</h2>
-      <p class="note">Alleen opgeslagen in deze browser. Klik om opnieuw te openen.</p>
+      <p class="note">De laatste 30 gemaakte antwoorden. Klik om opnieuw te openen.</p>
       <div id="histList" style="margin-top:8px"></div>
       <div class="actions"><button class="btn" id="histClear">Geschiedenis wissen</button></div>
     </div>
@@ -357,7 +382,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.7.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -676,6 +701,8 @@ let instructions = store.get('instructions', DEFAULT_INSTRUCTIONS);
 let signature = store.get('signature', DEFAULT_SIGNATURE);
 let kb = store.get('kb', []);
 let history = store.get('history', []);
+let examples = store.get('examples', []); // goedgekeurde antwoorden om van te leren
+let lessons = store.get('lessons', []);   // vaste regels die de medewerker heeft geleerd
 let convo = null;       // huidige berichtenreeks
 let controller = null;  // AbortController voor streaming
 
@@ -1036,7 +1063,7 @@ function mask(s) {
 }
 // Vaste delen (instructies, kennisbank) eerst en wisselende delen achteraan:
 // dan kunnen aanbieders het begin hergebruiken (prompt caching), wat tot 90% goedkoper is.
-function buildSystem(knowledge) {
+function buildSystem(knowledge, ex = []) {
   const tone = { standaard: 'volgens de instructies', vriendelijk: 'vriendelijk en persoonlijk', zakelijk: 'zakelijk en formeel', kort: 'kort en bondig (maximaal zo\'n 5 zinnen)', empathisch: 'extra empathisch en begripvol; de klant is ontevreden' }[$('tone').value];
   const lang = $('lang').value === 'auto' ? 'dezelfde taal als de klant' : $('lang').value;
   const instr = instructions.trim().startsWith('{')
@@ -1046,7 +1073,17 @@ function buildSystem(knowledge) {
 
 KENNISBANK (sjablonen en beleid; pas het juiste sjabloon toe als dat er is)
 ${knowledge || '(De kennisbank is leeg. Verzin geen beleid; gebruik invulplekken [AANVULLEN: …] waar nodig.)'}
-
+${lessons.length ? `
+GELEERDE VASTE REGELS (van de medewerkers; volg deze altijd)
+${lessons.map(l => '* ' + l.text).join('\n')}
+` : ''}${ex.length ? `
+VOORBEELDEN VAN EERDER GOEDGEKEURDE ANTWOORDEN
+Dit zijn echte antwoorden die de medewerker heeft goedgekeurd op vergelijkbare mails. Neem de stijl, opbouw, lengte en aanpak over. Neem GEEN namen, bestelnummers, bedragen of andere klantgegevens over uit deze voorbeelden: feiten en beleid komen alleen uit de kennisbank, de mail en de notitie.
+${ex.map((e, i) => `
+--- Voorbeeld ${i + 1} ---
+MAIL: ${e.email.slice(0, 2500)}${e.note ? `\nNOTITIE: ${e.note.slice(0, 500)}` : ''}
+GOEDGEKEURD ANTWOORD: ${e.reply.slice(0, 2500)}`).join('\n')}
+` : ''}
 VOOR DIT ANTWOORD
 - Toon: ${tone}.
 - Taal: ${lang}.
@@ -1081,9 +1118,10 @@ $('genBtn').addEventListener('click', () => {
   if (!isConfigured()) { go('settings'); setStatus($('setStatus'), 'Stel eerst een AI-model in.', true); return; }
   const note = $('note').value.trim();
   const knowledge = selectKnowledge(email + ' ' + note);
-  showContext(knowledge);
+  const ex = selectExamples(email + ' ' + note);
+  showContext(knowledge, ex.length);
   const user = `MAIL VAN DE KLANT:\n"""\n${mask(email)}\n"""\n\n${note ? `NOTITIE VAN DE MEDEWERKER (volg deze):\n${mask(note)}\n\n` : ''}Schrijf het antwoord op deze mail.`;
-  run([{ role: 'system', content: buildSystem(knowledge) }, { role: 'user', content: user }]);
+  run([{ role: 'system', content: buildSystem(knowledge, ex) }, { role: 'user', content: user }]);
 });
 
 function refine(instruction) {
@@ -1093,7 +1131,11 @@ function refine(instruction) {
   msgs.push({ role: 'user', content: `${instruction}\n\nGeef opnieuw alleen de volledige e-mailtekst.` });
   run(msgs);
 }
-$('refineBtn').addEventListener('click', () => { const v = $('refine').value.trim(); if (v) { refine(v); $('refine').value = ''; } });
+$('refineBtn').addEventListener('click', () => {
+  const v = $('refine').value.trim(); if (!v) return;
+  if ($('rememberRule').checked && convo) { addLesson(v); $('rememberRule').checked = false; }
+  refine(v); $('refine').value = '';
+});
 $('refine').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('refineBtn').click(); } });
 $('quickChips').addEventListener('click', e => { if (e.target.dataset.r) refine(e.target.dataset.r); });
 $('stopBtn').addEventListener('click', () => controller && controller.abort());
@@ -1101,18 +1143,73 @@ $('copyBtn').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($('reply').value); }
   catch { $('reply').select(); document.execCommand('copy'); }
   const n = renderChecks();
-  setStatus($('genStatus'), n ? `Gekopieerd, maar let op: nog ${n === 1 ? '1 controlepunt' : n + ' controlepunten'}.` : 'Gekopieerd naar klembord.', !!n);
+  const learned = learnFromCopy();
+  setStatus($('genStatus'), (n ? `Gekopieerd, maar let op: nog ${n === 1 ? '1 controlepunt' : n + ' controlepunten'}.` : 'Gekopieerd naar klembord.') + (learned ? ' Onthouden als voorbeeld.' : ''), !!n);
 });
 
+// ---------- leren van eerdere antwoorden ----------
+const maskAlways = t => t.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[e-mail]')
+  .replace(/\b[A-Z]{2}\d{2}\s?[A-Z]{4}(\s?\d{4}){2}\s?\d{2}\b/gi, '[IBAN]')
+  .replace(/(\+31|0031|\b0)[\s-]?\d(?:[\s-]?\d){8}\b/g, '[telefoon]');
+const MAX_EXAMPLES = 150;
+function learnFromCopy() {
+  if (settings.learn === false) return false;
+  const email = $('email').value.trim(), reply = $('reply').value.trim();
+  if (!email || !reply || /\[AANVULLEN/i.test(reply)) return false; // niet leren van onafgemaakte antwoorden
+  const ex = { t: Date.now(), email: maskAlways(email), note: maskAlways($('note').value.trim()), reply: maskAlways(reply) };
+  examples = examples.filter(e => e.email !== ex.email); // zelfde mail: nieuwste versie telt
+  examples.unshift(ex); examples = examples.slice(0, MAX_EXAMPLES);
+  store.set('examples', examples); renderLearned();
+  return true;
+}
+// Meest vergelijkbare eerdere mails zoeken (woorden die zeldzaam zijn tellen zwaarder)
+function selectExamples(query, max = 3) {
+  if (!examples.length) return [];
+  const self = maskAlways(query.trim());
+  const q = new Set(words(self));
+  const sets = examples.map(e => new Set(words(e.email + ' ' + e.note)));
+  const df = new Map(); sets.forEach(st => st.forEach(w => df.set(w, (df.get(w) || 0) + 1)));
+  const N = examples.length;
+  const idf = w => 0.5 + Math.log(1 + (N + 1) / (df.get(w) || 1));
+  return examples.map((e, i) => {
+    let sc = 0;
+    q.forEach(w => {
+      if (sets[i].has(w)) { sc += idf(w); return; }
+      // deelwoord telt half mee (bijv. "retour" en "retourneren")
+      if (w.length >= 5) for (const x of sets[i]) if (x.length >= 5 && (x.startsWith(w) || w.startsWith(x))) { sc += idf(x) / 2; break; }
+    });
+    return { e, sc: sc / Math.sqrt(1 + sets[i].size / 80) };
+  }).filter(x => x.sc >= 1 && (x.e.email + ' ' + x.e.note).trim() !== self).sort((a, b) => b.sc - a.sc).slice(0, max).map(x => x.e);
+}
+function addLesson(text) {
+  lessons.push({ t: Date.now(), text: text.replace(/\s+/g, ' ').trim() });
+  store.set('lessons', lessons); renderLearned();
+}
+function renderLearned() {
+  $('learnOn').checked = settings.learn !== false;
+  $('ruleList').innerHTML = lessons.length ? lessons.map((l, i) => `
+    <div class="doc"><div>${esc(l.text)}<div class="meta">${new Date(l.t).toLocaleDateString('nl-NL')}</div></div>
+    <div class="btns"><button class="btn" data-delrule="${i}">Verwijderen</button></div></div>`).join('') : '<p class="empty">Nog geen vaste regels.</p>';
+  $('exCount').textContent = `${examples.length} voorbeeld${examples.length === 1 ? '' : 'en'} onthouden (maximaal ${MAX_EXAMPLES}; de oudste vallen eraf).`;
+  $('exList').innerHTML = examples.slice(0, 50).map((e, i) => `
+    <div class="doc"><div style="min-width:0"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.email.replace(/\s+/g, ' ').slice(0, 120))}</div><div class="meta">${new Date(e.t).toLocaleString('nl-NL')}</div></div>
+    <div class="btns"><button class="btn" data-delex="${i}">Verwijderen</button></div></div>`).join('') + (examples.length > 50 ? `<p class="note">… en nog ${examples.length - 50} oudere.</p>` : '');
+}
+$('ruleList').addEventListener('click', e => { const i = e.target.dataset.delrule; if (i !== undefined && confirm('Deze regel verwijderen?')) { lessons.splice(+i, 1); store.set('lessons', lessons); renderLearned(); } });
+$('exList').addEventListener('click', e => { const i = e.target.dataset.delex; if (i !== undefined) { examples.splice(+i, 1); store.set('examples', examples); renderLearned(); } });
+$('addRule').addEventListener('click', () => { const v = $('newRule').value.trim(); if (v) { addLesson(v); $('newRule').value = ''; } });
+$('learnOn').addEventListener('change', e => { settings.learn = e.target.checked; saveSettings(); });
+$('exClear').addEventListener('click', () => { if (confirm('Alle onthouden voorbeelden wissen?')) { examples = []; store.set('examples', examples); renderLearned(); } });
+
 // ---------- meegestuurde kennis tonen ----------
-function showContext(knowledge) {
+function showContext(knowledge, nEx = 0) {
   if (knowledge === null) { $('ctxSummary').textContent = ''; $('ctxDocs').textContent = 'Nog geen antwoord gemaakt. Hier zie je straks welke documenten de AI heeft gekregen.'; $('ctxView').hidden = true; return; }
   const full = [], frag = new Map();
   for (const m of (knowledge || '').matchAll(/^### (.+?)( \(fragment\))?$/gm)) {
     if (m[2]) frag.set(m[1], (frag.get(m[1]) || 0) + 1); else full.push(m[1]);
   }
   const n = full.length + frag.size;
-  $('ctxSummary').textContent = `(${n} document${n === 1 ? '' : 'en'})`;
+  $('ctxSummary').textContent = `(${n} document${n === 1 ? '' : 'en'}${nEx ? `, ${nEx} voorbeeld${nEx === 1 ? '' : 'en'}` : ''}${lessons.length ? `, ${lessons.length} vaste regel${lessons.length === 1 ? '' : 's'}` : ''})`;
   $('ctxDocs').innerHTML = (full.length ? `<b>Volledig:</b> ${full.map(esc).join(', ')}` : '') +
     (frag.size ? `${full.length ? '<br>' : ''}<b>Passende stukken uit:</b> ${[...frag].map(([d, n]) => `${esc(d)} (${n})`).join(', ')}` : '') ||
     'De kennisbank is leeg.';
@@ -1197,7 +1294,7 @@ $('histClear').addEventListener('click', () => { if (confirm('Geschiedenis wisse
 // ---------- back-up ----------
 $('exportBtn').addEventListener('click', () => {
   const { apiKey, ...safe } = settings;
-  const blob = new Blob([JSON.stringify({ version: 1, settings: safe, instructions, signature, kb }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ version: 1, settings: safe, instructions, signature, kb, lessons }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = `antwoorden-adviesdrogisterij-${new Date().toISOString().slice(0, 10)}.json`;
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -1212,6 +1309,7 @@ $('importFile').addEventListener('change', async e => {
     if (d.instructions) instructions = d.instructions;
     if (d.signature) signature = d.signature;
     if (Array.isArray(d.kb)) kb = d.kb;
+    if (Array.isArray(d.lessons)) { lessons = d.lessons; store.set('lessons', lessons); renderLearned(); }
     store.set('settings', settings); store.set('instructions', instructions); store.set('signature', signature); saveKb();
     $('instructions').value = instructions; $('signature').value = signature; renderSettings();
     setStatus($('bkStatus'), 'Back-up teruggezet.');
@@ -1271,12 +1369,13 @@ window.onVaultReload = () => {
   settings = Object.assign(settings, store.get('settings', {}));
   instructions = store.get('instructions', DEFAULT_INSTRUCTIONS); signature = store.get('signature', DEFAULT_SIGNATURE);
   kb = store.get('kb', []); history = store.get('history', []);
+  examples = store.get('examples', []); lessons = store.get('lessons', []); renderLearned();
   if (document.activeElement !== $('instructions')) $('instructions').value = instructions;
   if (document.activeElement !== $('signature')) $('signature').value = signature;
   renderSettings(); renderKb(); renderHistory();
 };
 
-renderSettings(); renderKb(); renderHistory();
+renderSettings(); renderKb(); renderHistory(); renderLearned();
 };
 </script>
 </body>

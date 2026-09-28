@@ -13,6 +13,10 @@ Eén bestand: `index.html`. Het versienummer staat rechts naast de titel (consta
 5. **Kennisbank**: upload je Word-bestanden (Klachten, Retourneren, Standaard antwoorden, Verzendinformatie, Betaalmogelijkheden). Meerdere tegelijk kan.
 6. **Antwoord maken**: plak de mail van de klant, eventueel een notitie, en klik op *Antwoord maken*.
 
+### Leren van eerdere antwoorden
+
+Klik je op *Kopiëren*, dan onthoudt de app de mail met jouw definitieve antwoord (inclusief eigen aanpassingen; mailadressen, telefoonnummers en IBANs worden verborgen). Bij een nieuwe mail krijgt de AI de drie meest vergelijkbare goedgekeurde antwoorden mee als voorbeeld. Vaste regels voeg je toe via *Onthoud dit als vaste regel* bij *Laat het aanpassen* of in het tabblad *Geleerd*. Daar kun je ook voorbeelden en regels verwijderen of het leren uitzetten.
+
 ### Controle op huisregels
 
 Na elk antwoord controleert de app automatisch op de regels uit het instructiebestand: verboden woorden, gedachtestreepjes, niet ingevulde [invulplekken], en escalatie- of spoedwoorden in de klantmail. Met *Laten verbeteren* herschrijft de AI het antwoord volgens die regels.
