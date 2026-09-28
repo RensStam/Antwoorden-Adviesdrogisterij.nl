@@ -176,10 +176,10 @@ body.locked > header, body.locked > main { display: none; }
           <button class="btn primary" id="copyBtn">Kopiëren</button>
           <button class="btn" id="stopBtn" hidden>Stoppen</button>
         </div>
-        <label for="refine" style="margin-top:14px">Laat het aanpassen</label>
-        <div class="row">
-          <input id="refine" placeholder="Bijv.: noem ook de kortingscode ZORG10" style="flex:3 1 220px">
-          <button class="btn" id="refineBtn" style="flex:0 0 auto">Aanpassen</button>
+        <label for="refine" style="margin-top:14px">Laat het aanpassen <span style="font-size:12px">(Enter = versturen, Shift + Enter = nieuwe regel)</span></label>
+        <textarea id="refine" placeholder="Bijv.: noem ook de kortingscode ZORG10 en zeg dat de bestelling morgen wordt verzonden." style="min-height:110px"></textarea>
+        <div class="actions" style="margin-top:8px">
+          <button class="btn" id="refineBtn">Aanpassen</button>
         </div>
         <div class="chips" id="quickChips">
           <button data-r="Maak het korter.">Korter</button>
@@ -1021,7 +1021,7 @@ function refine(instruction) {
   run(msgs);
 }
 $('refineBtn').addEventListener('click', () => { const v = $('refine').value.trim(); if (v) { refine(v); $('refine').value = ''; } });
-$('refine').addEventListener('keydown', e => { if (e.key === 'Enter') $('refineBtn').click(); });
+$('refine').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('refineBtn').click(); } });
 $('quickChips').addEventListener('click', e => { if (e.target.dataset.r) refine(e.target.dataset.r); });
 $('stopBtn').addEventListener('click', () => controller && controller.abort());
 $('copyBtn').addEventListener('click', async () => {
