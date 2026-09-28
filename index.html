@@ -214,6 +214,7 @@ body.locked > header, body.locked > main { display: none; }
         </div>
         <div class="actions">
           <button class="btn primary" id="genBtn">Antwoord maken</button>
+          <label id="cheapWrap" style="display:flex;gap:6px;align-items:center;margin:0;cursor:pointer" title="Goedkoper model voor eenvoudige vragen"><input type="checkbox" id="cheap" style="width:auto;margin:0"> Zuinig <span class="note" id="cheapName" style="margin:0"></span></label>
           <button class="btn" id="clearBtn">Leegmaken</button>
         </div>
         <div class="status" id="genStatus"></div>
@@ -360,6 +361,9 @@ body.locked > header, body.locked > main { display: none; }
         </div>
         <datalist id="modelList"></datalist>
         <select id="modelSelect" hidden style="margin-top:8px"></select>
+        <label for="cheapModel">Zuinig model voor eenvoudige mails (leeg = automatisch)</label>
+        <input id="cheapModel" list="modelList" placeholder="bijv. gpt-5.4-mini">
+        <p class="note" id="usageNote"></p>
         <label for="temp">Creativiteit (temperatuur): <span id="tempVal"></span></label>
         <input id="temp" type="range" min="0" max="1" step="0.05">
         <div class="actions">
@@ -421,7 +425,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.11.0';
+const APP_VERSION = '1.12.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -864,6 +868,12 @@ function renderSettings() {
   $('providerHelp').textContent = p.help;
   $('modelList').innerHTML = p.models.map(m => `<option value="${esc(m)}">`).join('');
   $('modelPill').textContent = settings.model ? settings.model : 'geen model';
+  $('cheapModel').value = settings.cheapModel || ''; $('cheapModel').placeholder = cheapModel() ? 'automatisch: ' + cheapModel() : 'bijv. gpt-5.4-mini';
+  $('cheapWrap').hidden = !cheapModel(); $('cheapName').textContent = cheapModel() ? '(' + cheapModel() + ')' : '';
+  const u = settings.usage;
+  $('usageNote').textContent = u && u.month === new Date().toISOString().slice(0, 7)
+    ? `Deze maand: ${nl(u.n)} antwoorden, ${nl(u.in)} tokens in (waarvan ${u.in ? Math.round(100 * u.cached / u.in) : 0}% met korting uit de cache) en ${nl(u.out)} uit. Exacte kosten: zie het verbruiksoverzicht van je aanbieder.`
+    : 'Nog geen verbruik deze maand.';
   $('setupBanner').hidden = isConfigured();
 }
 function isConfigured() {
@@ -877,7 +887,7 @@ $('provider').addEventListener('change', e => {
   settings.model = p.model;
   saveSettings();
 });
-['baseUrl', 'apiKey', 'model'].forEach(id => $(id).addEventListener('change', e => { settings[id] = e.target.value.trim(); saveSettings(); }));
+['baseUrl', 'apiKey', 'model', 'cheapModel'].forEach(id => $(id).addEventListener('change', e => { settings[id] = e.target.value.trim(); saveSettings(); }));
 $('temp').addEventListener('input', e => { settings.temp = +e.target.value; $('tempVal').textContent = settings.temp; store.set('settings', settings); });
 $('mask').addEventListener('change', e => { settings.mask = e.target.checked; saveSettings(); });
 
@@ -1162,7 +1172,14 @@ function friendlyError(e) {
   return m;
 }
 const unsupported = {}; // per model: instellingen die het model weigerde (onthouden, scheelt tijd)
-async function chat(messages, onToken) {
+// Verbruik uit het antwoord van de aanbieder: { in, cached, out } in tokens
+function readUsage(u) {
+  if (!u) return null;
+  const inp = u.input_tokens ?? u.prompt_tokens ?? 0, out = u.output_tokens ?? u.completion_tokens ?? 0;
+  const cached = (u.input_tokens_details && u.input_tokens_details.cached_tokens) ?? (u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) ?? 0;
+  return { in: inp, cached, out };
+}
+async function chat(messages, onToken, model = settings.model) {
   if (!isConfigured()) throw new Error('Nog geen AI-model ingesteld (zie Instellingen).');
   controller = new AbortController();
   // OpenAI: de nieuwere Responses API (de nieuwste modellen werken alleen daarmee); anderen: chat/completions
@@ -1170,22 +1187,24 @@ async function chat(messages, onToken) {
   const url = settings.baseUrl.replace(/\/$/, '') + (responses ? '/responses' : '/chat/completions');
   let body;
   if (responses) {
-    body = { model: settings.model, instructions: messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n'),
+    body = { model, instructions: messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n'),
       input: messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })),
-      temperature: settings.temp, stream: true, store: false };
-    if (/^(gpt-5|o\d)/.test(settings.model)) body.reasoning = { effort: 'low' }; // sneller antwoord
+      temperature: settings.temp, stream: true, store: false,
+      // Vaste tekst (handleiding + kennisbank) 24 uur laten onthouden: daarop geeft OpenAI tot 90% korting
+      prompt_cache_key: 'adviesdrogisterij-antwoorden', prompt_cache_retention: '24h' };
+    if (/^(gpt-5|o\d)/.test(model)) body.reasoning = { effort: 'low' }; // sneller en zuiniger
   } else {
-    body = { model: settings.model, messages, temperature: settings.temp, stream: true };
+    body = { model, messages, temperature: settings.temp, stream: true, stream_options: { include_usage: true } };
   }
   // Niet elk model kent elke instelling (bijv. temperatuur, redeneerniveau, streaming): weglaten en opnieuw proberen
-  const skip = unsupported[settings.model] || (unsupported[settings.model] = new Set());
+  const skip = unsupported[model] || (unsupported[model] = new Set());
   skip.forEach(k => { if (k === 'stream') body.stream = false; else delete body[k]; });
   let r;
   for (let attempt = 0; ; attempt++) {
     r = await fetch(url, { method: 'POST', headers: authHeaders(), signal: controller.signal, body: JSON.stringify(body) });
     if (r.ok) break;
     const msg = await errText(r);
-    const drop = r.status === 400 && attempt < 4 && ['temperature', 'reasoning', 'store', 'stream'].find(k => k in body && body[k] !== false && new RegExp(k, 'i').test(msg));
+    const drop = r.status === 400 && attempt < 4 && ['prompt_cache_retention', 'prompt_cache_key', 'stream_options', 'temperature', 'reasoning', 'store', 'stream'].find(k => k in body && body[k] !== false && new RegExp(k, 'i').test(msg));
     if (!drop) throw new Error(msg);
     skip.add(drop);
     if (drop === 'stream') body.stream = false; else delete body[drop];
@@ -1196,10 +1215,10 @@ async function chat(messages, onToken) {
       ? (j.output || []).flatMap(o => o.content || []).filter(c => c.type === 'output_text').map(c => c.text).join('')
       : j.choices?.[0]?.message?.content || '';
     if (t) onToken(t.replace(/<think>[\s\S]*?<\/think>/g, ''));
-    return;
+    return readUsage(j.usage);
   }
   const reader = r.body.getReader(), dec = new TextDecoder();
-  let buf = '', thinking = false;
+  let buf = '', thinking = false, usage = null;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -1209,15 +1228,16 @@ async function chat(messages, onToken) {
       const s = line.trim();
       if (!s.startsWith('data:')) continue;
       const data = s.slice(5).trim();
-      if (data === '[DONE]') return;
+      if (data === '[DONE]') return usage;
       let j; try { j = JSON.parse(data); } catch { continue; }
       if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
       if (responses) {
         if (j.type === 'response.output_text.delta' && j.delta) onToken(j.delta);
         else if (j.type === 'response.failed') throw new Error(j.response?.error?.message || 'het model gaf een fout');
-        else if (j.type === 'response.completed' || j.type === 'response.incomplete') return;
+        else if (j.type === 'response.completed' || j.type === 'response.incomplete') return readUsage(j.response && j.response.usage);
         continue;
       }
+      if (j.usage) usage = readUsage(j.usage);
       let t = j.choices?.[0]?.delta?.content;
       if (!t) continue;
       // "denk"-tekst van redeneermodellen (bijv. Qwen3) niet tonen
@@ -1226,6 +1246,7 @@ async function chat(messages, onToken) {
       if (t) onToken(t);
     }
   }
+  return usage;
 }
 
 // ---------- antwoord maken ----------
@@ -1240,8 +1261,10 @@ function mask(s) {
 function buildSystem(knowledge, ex = []) {
   const tone = { standaard: 'volgens de instructies', vriendelijk: 'vriendelijk en persoonlijk', zakelijk: 'zakelijk en formeel', kort: 'kort en bondig (maximaal zo\'n 5 zinnen)', empathisch: 'extra empathisch en begripvol; de klant is ontevreden' }[$('tone').value];
   const lang = $('lang').value === 'auto' ? 'dezelfde taal als de klant' : $('lang').value;
-  const instr = instructions.trim().startsWith('{')
-    ? `Hieronder staan je instructies en de communicatiehandleiding van Adviesdrogisterij.nl in JSON-formaat. Volg ze strikt; ze gaan voor alles hieronder, behalve de notitie van de medewerker.\n\n${instructions}`
+  let compact = null; // JSON zonder spaties en inspringingen: zelfde inhoud, minder tokens
+  if (instructions.trim().startsWith('{')) { try { compact = JSON.stringify(JSON.parse(instructions)); } catch { compact = instructions; } }
+  const instr = compact !== null
+    ? `Hieronder staan je instructies en de communicatiehandleiding van Adviesdrogisterij.nl in JSON-formaat. Volg ze strikt; ze gaan voor alles hieronder, behalve de notitie van de medewerker.\n\n${compact}`
     : instructions;
   return `${instr}
 
@@ -1255,8 +1278,8 @@ VOORBEELDEN VAN EERDER GOEDGEKEURDE ANTWOORDEN
 Dit zijn echte antwoorden die de medewerker heeft goedgekeurd op vergelijkbare mails. Neem de stijl, opbouw, lengte en aanpak over. Neem GEEN namen, bestelnummers, bedragen of andere klantgegevens over uit deze voorbeelden: feiten en beleid komen alleen uit de kennisbank, de mail en de notitie.
 ${ex.map((e, i) => `
 --- Voorbeeld ${i + 1} ---
-MAIL: ${e.email.slice(0, 2500)}${e.note ? `\nNOTITIE: ${e.note.slice(0, 500)}` : ''}
-GOEDGEKEURD ANTWOORD: ${e.reply.slice(0, 2500)}`).join('\n')}
+MAIL: ${e.email.slice(0, 1500)}${e.note ? `\nNOTITIE: ${e.note.slice(0, 400)}` : ''}
+GOEDGEKEURD ANTWOORD: ${e.reply.slice(0, 1500)}`).join('\n')}
 ` : ''}
 VOOR DIT ANTWOORD
 - Toon: ${tone}.
@@ -1266,17 +1289,31 @@ ${signature}` : '- Sluit het antwoord af zonder groet en zonder naam: de handtek
 - Vandaag is het ${new Date().toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}.`;
 }
 
-async function run(messages) {
+// Zuinig model (mini) voor eenvoudige mails: zelf in te stellen, of automatisch "<model>-mini" bij OpenAI
+const cheapModel = () => settings.cheapModel || (settings.provider === 'openai' && /^gpt-\d+(\.\d+)?$/.test(settings.model) ? settings.model + '-mini' : '');
+let convoModel = null;
+const nl = n => Number(n || 0).toLocaleString('nl-NL');
+function trackUsage(u) {
+  if (!u) return '';
+  const month = new Date().toISOString().slice(0, 7);
+  const t = settings.usage && settings.usage.month === month ? settings.usage : (settings.usage = { month, n: 0, in: 0, cached: 0, out: 0 });
+  t.n++; t.in += u.in; t.cached += u.cached; t.out += u.out; saveSettings();
+  const pct = u.in ? Math.round(100 * u.cached / u.in) : 0;
+  return ` · ${nl(u.in)} tokens in${u.cached ? ` (${pct}% met korting uit de cache)` : ''}, ${nl(u.out)} uit`;
+}
+async function run(messages, model = convoModel || settings.model) {
+  convoModel = model;
   const out = $('reply'), st = $('genStatus');
   out.value = ''; setStatus(st, 'Bezig met schrijven…');
   $('genBtn').disabled = $('refineBtn').disabled = true; $('stopBtn').hidden = false;
   let text = '';
   try {
-    await chat(messages, t => { text += t; out.value = text; out.scrollTop = out.scrollHeight; });
+    const usage = await chat(messages, t => { text += t; out.value = text; out.scrollTop = out.scrollHeight; }, model);
     text = text.trim(); out.value = text;
     convo = [...messages, { role: 'assistant', content: text }];
     const n = renderChecks();
-    setStatus(st, n ? `Klaar. Let op de ${n === 1 ? 'controlepunt' : n + ' controlepunten'} hieronder.` : 'Klaar. Lees het na en pas aan waar nodig.');
+    const cost = trackUsage(usage) + (model !== settings.model ? ` · zuinig model (${model})` : '');
+    setStatus(st, (n ? `Klaar. Let op de ${n === 1 ? 'controlepunt' : n + ' controlepunten'} hieronder.` : 'Klaar. Lees het na en pas aan waar nodig.') + cost);
     saveHistory(text);
   } catch (e) {
     setStatus(st, 'Er ging iets mis: ' + friendlyError(e), true);
@@ -1295,7 +1332,8 @@ $('genBtn').addEventListener('click', () => {
   const ex = selectExamples(email + ' ' + note);
   showContext(knowledge, ex.length);
   const user = `MAIL VAN DE KLANT:\n"""\n${mask(email)}\n"""\n\n${note ? `NOTITIE VAN DE MEDEWERKER (volg deze):\n${mask(note)}\n\n` : ''}Schrijf het antwoord op deze mail.`;
-  run([{ role: 'system', content: buildSystem(knowledge, ex) }, { role: 'user', content: user }]);
+  const model = $('cheap').checked && cheapModel() ? cheapModel() : settings.model;
+  run([{ role: 'system', content: buildSystem(knowledge, ex) }, { role: 'user', content: user }], model);
 });
 
 function refine(instruction) {
