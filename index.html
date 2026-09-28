@@ -171,11 +171,10 @@ body.locked > header, body.locked > main { display: none; }
   <section data-tab="compose" class="active">
     <div class="card" id="inboxCard" hidden style="margin-bottom:16px">
       <div class="inboxHead">
-        <h2>Outlook inbox <span class="note" id="inboxWho" style="font-weight:400"></span></h2>
+        <h2>Inbox <span class="note" id="inboxWho" style="font-weight:400"></span></h2>
         <div class="actions" style="margin:0;align-items:center">
           <label style="display:flex;gap:6px;align-items:center;margin:0;cursor:pointer"><input type="checkbox" id="unreadOnly" style="width:auto;margin:0" checked> Alleen ongelezen</label>
           <button class="btn" id="inboxRefresh">Vernieuwen</button>
-          <button class="btn primary" id="inboxConnect" hidden>Inloggen bij Outlook</button>
         </div>
       </div>
       <div class="inbox" id="inboxList"></div>
@@ -223,7 +222,7 @@ body.locked > header, body.locked > main { display: none; }
         <textarea id="reply" placeholder="Hier verschijnt het antwoord…"></textarea>
         <div class="actions">
           <button class="btn primary" id="copyBtn">Kopiëren</button>
-          <button class="btn primary" id="draftBtn" hidden>Als concept in Outlook</button>
+          <button class="btn primary" id="draftBtn" hidden>Als concept in mailbox</button>
           <button class="btn" id="stopBtn" hidden>Stoppen</button>
         </div>
         <div class="checks" id="checks" hidden></div>
@@ -395,17 +394,12 @@ body.locked > header, body.locked > main { display: none; }
         <div class="status" id="pwStatus"></div>
       </div>
       <div class="card">
-        <h2>Koppeling met Outlook</h2>
-        <p class="note">Laad mails direct uit je Microsoft 365-mailbox en zet het antwoord als concept klaar in Outlook. Eenmalig een app-registratie maken in Microsoft (zie de uitleg in de README), dan hier de twee ID's invullen.</p>
-        <label for="msClient">Application (client) ID</label>
-        <input id="msClient" placeholder="bijv. 1a2b3c4d-....">
-        <label for="msTenant">Directory (tenant) ID</label>
-        <input id="msTenant" placeholder="bijv. 9f8e7d6c-....">
-        <label for="msMailbox">Mailbox (leeg = je eigen mailbox)</label>
-        <input id="msMailbox" placeholder="bijv. info@adviesdrogisterij.nl (gedeelde mailbox)">
-        <p class="note">Doorsturen naar deze pagina na inloggen: <b id="msRedirect"></b></p>
-        <div class="actions"><button class="btn primary" id="msConnect">Verbinden met Outlook</button><button class="btn" id="msDisconnect">Loskoppelen</button></div>
-        <div class="status" id="msStatus"></div>
+        <h2>Koppeling met je mailbox</h2>
+        <p class="note">Laad mails direct uit je eigen mailbox (IMAP) en zet het antwoord als concept klaar in je map Concepten; verzenden doe je zelf in je mailprogramma. Eenmalig instellen in Supabase: de functie <b>mail</b> en de gegevens van je mailserver als Secrets (zie de README). Het wachtwoord van je mailbox staat alleen daar, nooit in de app.</p>
+        <p class="note" id="mailServerOnly" hidden style="color:var(--warn)">Alleen beschikbaar met centrale opslag (Supabase).</p>
+        <label style="display:flex;gap:8px;align-items:center;color:var(--text);cursor:pointer"><input type="checkbox" id="mailEnabled" style="width:auto;margin:0"> Inbox tonen bij Antwoord maken</label>
+        <div class="actions"><button class="btn primary" id="mailTest">Verbinding testen</button></div>
+        <div class="status" id="mailStatus"></div>
       </div>
       <div class="card">
         <h2>Privacy</h2>
@@ -419,7 +413,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.10.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -605,6 +599,22 @@ window.vaultSetAdmin = async adminPw => {
 window.vaultAdminState = () => !SERVER ? 'local' : info.admin === undefined ? 'old-sql' : info.admin ? 'admin' : 'no-admin';
 window.MIN_PW = MIN_PW;
 window.vaultMode = SERVER ? 'server' : 'local';
+// Mailkoppeling: de Supabase-functie "mail" controleert het toegangsbewijs en praat met de mailserver
+window.mailApi = async (action, args = {}) => {
+  if (!SERVER) throw new Error('De mailkoppeling werkt alleen met centrale opslag (Supabase).');
+  const headers = { 'Content-Type': 'application/json', apikey: SERVER_KEY };
+  if (SERVER_KEY.startsWith('eyJ')) headers.Authorization = 'Bearer ' + SERVER_KEY;
+  let r;
+  try { r = await fetch(`${SERVER_URL.replace(/\/$/, '')}/functions/v1/mail`, { method: 'POST', headers, body: JSON.stringify({ action, token, ...args }) }); }
+  catch { throw new Error('Geen verbinding met de mailkoppeling. Controleer je internet, en of de functie "mail" in Supabase staat.'); }
+  const j = await r.json().catch(() => ({}));
+  if (r.ok && !j.error) return j;
+  const m = j.error || j.message || j.msg || ('fout ' + r.status);
+  if (r.status === 404 && /not.?found|NOT_FOUND/i.test(JSON.stringify(j))) throw new Error('De functie "mail" staat nog niet in Supabase (Edge Functions). Zie de README.');
+  if (r.status === 401 && !j.error) throw new Error('Supabase weigert de aanroep: zet bij de functie "mail" de optie "Verify JWT" uit. (' + m + ')');
+  if (r.status === 401 && /Toegang geweigerd/.test(m)) { passwordChangedElsewhere(); }
+  throw new Error(m);
+};
 
 async function lockNow(url) {
   clearTimeout(saveTimer);
@@ -1419,7 +1429,7 @@ $('checks').addEventListener('click', e => {
 });
 $('clearBtn').addEventListener('click', () => {
   $('email').value = $('note').value = $('reply').value = ''; convo = null; currentMsg = null;
-  showContext(null); $('checks').hidden = true; setStatus($('genStatus'), ''); renderMs();
+  showContext(null); $('checks').hidden = true; setStatus($('genStatus'), ''); renderMail();
   document.querySelectorAll('.mail.sel').forEach(x => x.classList.remove('sel'));
 });
 document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && document.activeElement.closest('section[data-tab="compose"]')) $('genBtn').click(); });
@@ -1447,137 +1457,79 @@ $('histList').addEventListener('click', e => {
 });
 $('histClear').addEventListener('click', () => { if (confirm('Geschiedenis wissen?')) { history = []; store.set('history', history); renderHistory(); } });
 
-// ---------- Outlook (Microsoft 365) via Microsoft Graph ----------
-// Inloggen met OAuth 2.0 + PKCE (geen wachtwoord in de app). Tokens alleen in deze browsersessie.
-const MS_LOGIN = 'https://login.microsoftonline.com';
-const GRAPH = 'https://graph.microsoft.com/v1.0';
-const MS_SCOPES = 'openid profile offline_access User.Read Mail.ReadWrite Mail.ReadWrite.Shared';
-const msRedirect = location.origin + location.pathname;
-const ms = () => settings.ms || (settings.ms = {});
-const msReady = () => !!(ms().client && ms().tenant);
-let msTok = null; try { msTok = JSON.parse(sessionStorage.getItem('ads_ms_tok') || 'null'); } catch {}
-let currentMsg = null, inboxMsgs = [];
-const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-function msSaveTok(t) { msTok = t; try { t ? sessionStorage.setItem('ads_ms_tok', JSON.stringify(t)) : sessionStorage.removeItem('ads_ms_tok'); } catch {} }
-async function msLogin() {
-  if (!msReady()) { go('settings'); setStatus($('msStatus'), 'Vul eerst het client-ID en tenant-ID in.', true); return; }
-  const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
-  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
-  const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
-  try { sessionStorage.setItem('ads_ms_pkce', JSON.stringify({ verifier, state })); } catch {}
-  const q = new URLSearchParams({ client_id: ms().client, response_type: 'code', redirect_uri: msRedirect, response_mode: 'query',
-    scope: MS_SCOPES, state, code_challenge: challenge, code_challenge_method: 'S256', prompt: 'select_account' });
-  window.vaultLock(`${MS_LOGIN}/${encodeURIComponent(ms().tenant)}/oauth2/v2.0/authorize?${q}`); // eerst opslaan, dan naar Microsoft
+// ---------- Koppeling met de eigen mailbox (IMAP, via de Supabase-functie "mail") ----------
+const mailCfg = () => settings.mail || (settings.mail = {});
+const mailOn = () => !!mailCfg().enabled && window.vaultMode === 'server';
+let currentMsg = null, inboxMsgs = [], inboxLoaded = 0;
+function renderMail() {
+  $('mailEnabled').checked = !!mailCfg().enabled;
+  $('mailEnabled').disabled = $('mailTest').disabled = window.vaultMode !== 'server';
+  $('mailServerOnly').hidden = window.vaultMode === 'server';
+  $('inboxCard').hidden = !mailOn();
+  $('draftBtn').hidden = !(mailOn() && currentMsg);
 }
-async function msToken(params) {
-  const r = await fetch(`${MS_LOGIN}/${encodeURIComponent(ms().tenant)}/oauth2/v2.0/token`, { method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: ms().client, scope: MS_SCOPES, ...params }) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error_description ? j.error_description.split('\n')[0] : 'inloggen bij Microsoft mislukt (' + r.status + ')');
-  msSaveTok({ access: j.access_token, refresh: j.refresh_token || (msTok && msTok.refresh), exp: Date.now() + (j.expires_in || 3600) * 1000 });
-}
-// Terug van Microsoft met ?code=...: omwisselen voor een token
-async function msHandleRedirect() {
-  const qs = new URLSearchParams(location.search);
-  if (!qs.has('code') && !qs.has('error')) return;
-  window.history.replaceState(null, '', location.pathname); // (let op: 'history' is hier de antwoordgeschiedenis)
-  let pk = null; try { pk = JSON.parse(sessionStorage.getItem('ads_ms_pkce') || 'null'); sessionStorage.removeItem('ads_ms_pkce'); } catch {}
-  if (qs.has('error')) { setStatus($('inboxStatus'), 'Inloggen bij Microsoft mislukt: ' + (qs.get('error_description') || qs.get('error')), true); return; }
-  if (!pk || pk.state !== qs.get('state')) { setStatus($('inboxStatus'), 'Inloggen bij Microsoft mislukt (ongeldige terugkeer). Probeer het opnieuw.', true); return; }
-  try { await msToken({ grant_type: 'authorization_code', code: qs.get('code'), redirect_uri: msRedirect, code_verifier: pk.verifier }); }
-  catch (e) { setStatus($('inboxStatus'), e.message, true); }
-}
-async function graph(path, opts = {}, retry = true) {
-  if (!msTok) throw Object.assign(new Error('Niet ingelogd bij Outlook.'), { code: 'login' });
-  if (Date.now() > msTok.exp - 60000) {
-    if (!msTok.refresh) { msSaveTok(null); throw Object.assign(new Error('Sessie verlopen, log opnieuw in bij Outlook.'), { code: 'login' }); }
-    try { await msToken({ grant_type: 'refresh_token', refresh_token: msTok.refresh }); }
-    catch { msSaveTok(null); throw Object.assign(new Error('Sessie verlopen, log opnieuw in bij Outlook.'), { code: 'login' }); }
-  }
-  const r = await fetch(GRAPH + path, { ...opts, headers: { Authorization: 'Bearer ' + msTok.access, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
-  if (r.status === 401 && retry && msTok.refresh) { msTok.exp = 0; return graph(path, opts, false); }
-  const j = r.status === 204 ? {} : await r.json().catch(() => ({}));
-  if (!r.ok) {
-    const m = (j.error && (j.error.message || j.error.code)) || ('fout ' + r.status);
-    throw new Error(r.status === 403 || /access ?denied|ErrorAccessDenied/i.test(m) ? 'Geen toegang tot deze mailbox. Controleer de mailbox en de rechten (Mail.ReadWrite.Shared). ' + m : m);
-  }
-  return j;
-}
-const mbox = () => ms().mailbox ? '/users/' + encodeURIComponent(ms().mailbox) : '/me';
-function renderMs() {
-  $('msClient').value = ms().client || ''; $('msTenant').value = ms().tenant || ''; $('msMailbox').value = ms().mailbox || '';
-  $('msRedirect').textContent = msRedirect;
-  $('inboxCard').hidden = !msReady();
-  $('inboxConnect').hidden = !!msTok; $('inboxRefresh').hidden = !msTok;
-  $('draftBtn').hidden = !(msTok && currentMsg);
-}
-['msClient', 'msTenant', 'msMailbox'].forEach(id => $(id).addEventListener('change', e => {
-  ms()[{ msClient: 'client', msTenant: 'tenant', msMailbox: 'mailbox' }[id]] = e.target.value.trim(); saveSettings(); renderMs();
-}));
-$('msConnect').addEventListener('click', msLogin);
-$('inboxConnect').addEventListener('click', msLogin);
-$('msDisconnect').addEventListener('click', () => { msSaveTok(null); currentMsg = null; $('inboxList').innerHTML = ''; $('inboxWho').textContent = ''; renderMs(); setStatus($('msStatus'), 'Losgekoppeld in deze browser.'); });
-async function loadInbox() {
-  const st = $('inboxStatus');
-  if (!msTok) { setStatus(st, 'Klik op "Inloggen bij Outlook" om je mails te laden.'); renderMs(); return; }
-  setStatus(st, 'Mails ophalen…');
+$('mailEnabled').addEventListener('change', e => { mailCfg().enabled = e.target.checked; saveSettings(); renderMail(); if (e.target.checked) loadInbox(); });
+$('mailTest').addEventListener('click', async () => {
+  const st = $('mailStatus');
+  setStatus(st, 'Verbinden met je mailbox…');
   try {
-    if (!$('inboxWho').textContent) {
-      const me = await graph('/me?$select=displayName,mail,userPrincipalName');
-      $('inboxWho').textContent = '· ' + (ms().mailbox || me.mail || me.userPrincipalName);
-      setStatus($('msStatus'), 'Verbonden als ' + (me.displayName || me.mail));
-    }
-    const j = await graph(`${mbox()}/mailFolders/inbox/messages?$top=40&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,isRead,bodyPreview`);
-    inboxMsgs = (j.value || []).filter(m => !$('unreadOnly').checked || !m.isRead);
+    const r = await window.mailApi('ping');
+    mailCfg().enabled = true; mailCfg().user = r.user; saveSettings(); renderMail();
+    setStatus(st, `Gelukt! Verbonden met ${r.user}: ${r.messages} mail${r.messages === 1 ? '' : 's'} in de inbox, waarvan ${r.unseen} ongelezen. ` +
+      (r.drafts ? `Concepten komen in de map "${r.drafts}".` : '⚠ ' + r.warning), !r.drafts);
+    loadInbox();
+  } catch (e) { setStatus(st, 'Mislukt: ' + e.message, true); }
+});
+const fromLabel = f => (f && (f.name || f.address)) || '(onbekend)';
+async function loadInbox() {
+  if (!mailOn()) return;
+  const st = $('inboxStatus');
+  $('inboxWho').textContent = mailCfg().user ? '· ' + mailCfg().user : '';
+  setStatus(st, 'Mails ophalen…'); inboxLoaded = Date.now();
+  try {
+    const { messages } = await window.mailApi('list', { unreadOnly: $('unreadOnly').checked, limit: 40 });
+    inboxMsgs = messages || [];
     $('inboxList').innerHTML = inboxMsgs.length ? inboxMsgs.map((m, i) => `
-      <div class="mail${m.isRead ? '' : ' unread'}${currentMsg && currentMsg.id === m.id ? ' sel' : ''}" data-m="${i}">
-        <div class="from">${esc((m.from && m.from.emailAddress && (m.from.emailAddress.name || m.from.emailAddress.address)) || '(onbekend)')} · <span class="subj">${esc(m.subject || '(geen onderwerp)')}</span></div>
-        <div class="when">${new Date(m.receivedDateTime).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
-        <div class="prev">${esc(m.bodyPreview || '')}</div>
-      </div>`).join('') : '<p class="empty" style="padding:10px 12px;margin:0">Geen ' + ($('unreadOnly').checked ? 'ongelezen ' : '') + 'mails.</p>';
+      <div class="mail${m.seen ? '' : ' unread'}${currentMsg && currentMsg.uid === m.uid ? ' sel' : ''}" data-m="${i}" title="${esc(m.from.address || '')}">
+        <div class="from">${esc(fromLabel(m.from))} · <span class="subj">${esc(m.subject || '(geen onderwerp)')}</span></div>
+        <div class="when">${m.date ? new Date(m.date).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}</div>
+      </div>`).join('') : `<p class="empty" style="padding:10px 12px;margin:0">Geen ${$('unreadOnly').checked ? 'ongelezen ' : ''}mails.</p>`;
     setStatus(st, `${inboxMsgs.length} mail${inboxMsgs.length === 1 ? '' : 's'}. Klik op een mail om hem in te laden.`);
-  } catch (e) { setStatus(st, e.message, true); if (e.code === 'login') renderMs(); }
+  } catch (e) { setStatus(st, e.message, true); }
 }
 $('inboxRefresh').addEventListener('click', loadInbox);
 $('unreadOnly').addEventListener('change', loadInbox);
+// Terug in het venster en de lijst is ouder dan 3 minuten: vanzelf vernieuwen
+window.addEventListener('focus', () => { if (mailOn() && Date.now() - inboxLoaded > 3 * 60000) loadInbox(); });
 $('inboxList').addEventListener('click', async e => {
   const row = e.target.closest('[data-m]'); if (!row) return;
   const m = inboxMsgs[+row.dataset.m], st = $('inboxStatus');
   setStatus(st, 'Mail openen…');
   try {
-    const full = await graph(`${mbox()}/messages/${encodeURIComponent(m.id)}?$select=id,subject,from,body,receivedDateTime`, { headers: { Prefer: 'outlook.body-content-type="text"' } });
-    const from = full.from && full.from.emailAddress ? full.from.emailAddress.name || full.from.emailAddress.address : '';
-    const body = (full.body && full.body.content || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim().slice(0, 12000);
-    $('email').value = `Van: ${from}\nOnderwerp: ${full.subject || ''}\n\n${body}`;
+    const { message: full } = await window.mailApi('get', { uid: m.uid });
+    $('email').value = `Van: ${fromLabel(full.from)}\nOnderwerp: ${full.subject || ''}\n\n${full.text}` +
+      (full.attachments && full.attachments.length ? `\n\n(Bijlagen: ${full.attachments.join(', ')})` : '');
     $('note').value = ''; $('reply').value = ''; convo = null; $('checks').hidden = true; showContext(null);
-    currentMsg = { id: full.id, subject: full.subject };
+    currentMsg = { uid: full.uid, subject: full.subject };
     document.querySelectorAll('.mail.sel').forEach(x => x.classList.remove('sel')); row.classList.add('sel');
-    renderMs(); setStatus(st, `Ingeladen: "${full.subject || ''}". Klik op "Antwoord maken".`);
+    renderMail(); setStatus(st, `Ingeladen: "${full.subject || ''}". Klik op "Antwoord maken".`);
     $('email').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } catch (err) { setStatus(st, err.message, true); }
 });
-// Antwoord als concept in de mailconversatie zetten (antwoord bovenaan, oorspronkelijke mail eronder)
-const textToHtml = t => '<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">' +
-  t.trim().split(/\n{2,}/).map(p => '<p style="margin:0 0 12px">' + esc(p).replace(/\n/g, '<br>') + '</p>').join('') + '</div>';
+// Antwoord als concept in de mailbox zetten (map Concepten), als antwoord op de oorspronkelijke mail
 $('draftBtn').addEventListener('click', async () => {
   const text = $('reply').value.trim(), st = $('genStatus');
   if (!currentMsg || !text) return;
   const n = renderChecks();
-  if (n && !confirm(`Er ${n === 1 ? 'staat nog 1 controlepunt' : 'staan nog ' + n + ' controlepunten'} open. Toch als concept in Outlook zetten?`)) return;
-  setStatus(st, 'Concept maken in Outlook…');
+  if (n && !confirm(`Er ${n === 1 ? 'staat nog 1 controlepunt' : 'staan nog ' + n + ' controlepunten'} open. Toch als concept in je mailbox zetten?`)) return;
+  setStatus(st, 'Concept opslaan in je mailbox…');
   try {
-    const draft = await graph(`${mbox()}/messages/${encodeURIComponent(currentMsg.id)}/createReply`, { method: 'POST', body: '{}' });
-    const old = (draft.body && draft.body.content) || '';
-    const html = /<body[^>]*>/i.test(old) ? old.replace(/<body([^>]*)>/i, `<body$1>${textToHtml(text)}`) : textToHtml(text) + old;
-    await graph(`${mbox()}/messages/${encodeURIComponent(draft.id)}`, { method: 'PATCH', body: JSON.stringify({ body: { contentType: 'HTML', content: html } }) });
+    const r = await window.mailApi('draft', { uid: currentMsg.uid, text });
     const learned = learnFromCopy();
-    st.innerHTML = '';
-    st.append(document.createTextNode('Concept staat klaar in Outlook (map Concepten).' + (learned ? ' Onthouden als voorbeeld. ' : ' ')));
-    if (draft.webLink) { const a = document.createElement('a'); a.href = draft.webLink; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Openen in Outlook'; st.append(a); }
-    st.classList.remove('err');
-  } catch (e) { setStatus(st, 'Concept maken mislukt: ' + e.message, true); if (e.code === 'login') renderMs(); }
+    setStatus(st, `Concept staat klaar in de map "${r.folder}" (aan ${r.to}). Open je mailprogramma om het te verzenden.` + (learned ? ' Onthouden als voorbeeld.' : ''));
+  } catch (e) { setStatus(st, 'Concept opslaan mislukt: ' + e.message, true); }
 });
-msHandleRedirect().then(() => { renderMs(); if (msTok && msReady()) loadInbox(); });
+renderMail(); if (mailOn()) loadInbox();
 
 // ---------- back-up ----------
 $('exportBtn').addEventListener('click', () => {
@@ -1658,7 +1610,7 @@ window.onVaultReload = () => {
   settings = Object.assign(settings, store.get('settings', {}));
   instructions = store.get('instructions', DEFAULT_INSTRUCTIONS); signature = store.get('signature', DEFAULT_SIGNATURE);
   kb = store.get('kb', []); history = store.get('history', []);
-  examples = store.get('examples', []); lessons = store.get('lessons', []); renderLearned(); renderMs();
+  examples = store.get('examples', []); lessons = store.get('lessons', []); renderLearned(); renderMail();
   if (document.activeElement !== $('instructions')) $('instructions').value = instructions;
   if (document.activeElement !== $('signature')) $('signature').value = signature;
   renderSettings(); renderKb(); renderHistory();

@@ -45,20 +45,26 @@ Werken twee mensen tegelijk, dan voegt de app de wijzigingen samen. Wijzigingen 
 
 De workflow `.github/workflows/keep-supabase-awake.yml` houdt het gratis project wakker (Supabase pauzeert anders na een week zonder gebruik).
 
-## Koppeling met Outlook (Microsoft 365)
+## Koppeling met je mailbox (IMAP)
 
-Mails worden direct uit je mailbox geladen en het antwoord komt als concept in de mailconversatie te staan (map Concepten); je klikt in Outlook alleen nog op Verzenden. Inloggen gaat via Microsoft zelf (OAuth); je mailwachtwoord komt nooit in de app en de toegang staat alleen in de huidige browsersessie.
+Mails worden direct uit je eigen mailbox geladen en het antwoord komt als concept in je map Concepten (als antwoord op de oorspronkelijke mail, met de oorspronkelijke tekst eronder). Verzenden doe je zelf in je mailprogramma. Mails worden alleen gelezen: niet als gelezen gemarkeerd, niet verplaatst of verwijderd.
 
-Eenmalig een app-registratie maken (±5 minuten, als beheerder van je Microsoft 365-omgeving):
+Een browser kan niet zelf met een mailserver praten. Daarom loopt dit via een kleine functie in Supabase (`supabase/functions/mail/index.ts`). Die controleert eerst of je in de app bent ingelogd en logt pas daarna in op je mailbox. De gegevens van je mailbox staan alleen als *Secrets* in Supabase, nooit in de app of in deze repository. Dit werkt alleen met centrale opslag.
 
-1. Ga naar https://entra.microsoft.com → **Applications → App registrations → New registration**.
-2. Naam: `Antwoorden Adviesdrogisterij`. Supported account types: **Accounts in this organizational directory only**.
-3. Redirect URI: platform **Single-page application (SPA)**, adres: `https://rensstam.github.io/Antwoorden-Adviesdrogisterij.nl/` (precies zoals het in de app bij Instellingen staat). Klik **Register**.
-4. Kopieer op de overzichtspagina de **Application (client) ID** en **Directory (tenant) ID**.
-5. **API permissions → Add a permission → Microsoft Graph → Delegated**: `Mail.ReadWrite`, `Mail.ReadWrite.Shared`, `User.Read`, `offline_access`. Klik daarna op **Grant admin consent**.
-6. Vul in de app bij **Instellingen → Koppeling met Outlook** de twee ID's in, en bij *Mailbox* eventueel de gedeelde mailbox (bijv. `info@adviesdrogisterij.nl`). Klik **Verbinden met Outlook**.
+Eenmalig instellen (±10 minuten):
 
-Voor een gedeelde mailbox moet je eigen Microsoft-account in Exchange *Volledige toegang* tot die mailbox hebben.
+1. **Database bijwerken**: voer `supabase/setup.sql` opnieuw uit (SQL Editor → Run). Dit voegt de controle `vault_verify` toe; bestaande gegevens blijven staan.
+2. **Functie plaatsen**: Supabase → **Edge Functions → Deploy a new function → Via Editor**. Naam: `mail`. Vervang de voorbeeldcode door de inhoud van `supabase/functions/mail/index.ts` en klik **Deploy**.
+3. **JWT-controle uit**: open de functie `mail` → **Settings** (of Details) en zet **Verify JWT** (*Enforce JWT verification*) **uit**, en sla op. De functie doet zelf de toegangscontrole.
+4. **Secrets**: Supabase → **Edge Functions → Secrets** (Manage secrets). Voeg toe:
+   - `IMAP_HOST`: je inkomende mailserver, bijv. `mail.adviesdrogisterij.nl`
+   - `IMAP_PORT`: `993` (SSL/TLS; bij `143` wordt STARTTLS gebruikt)
+   - `IMAP_USER`: de gebruikersnaam, meestal het volledige mailadres
+   - `IMAP_PASSWORD`: het wachtwoord van de mailbox
+   - optioneel `MAIL_FROM_NAME` (standaard *Adviesdrogisterij.nl*), `MAIL_FROM` (afzenderadres, standaard `IMAP_USER`), `IMAP_DRAFTS` (naam van de conceptenmap als die niet vanzelf wordt gevonden) en `IMAP_ALLOW_SELF_SIGNED` = `true` als je server een eigen (niet-officieel) certificaat gebruikt.
+5. **In de app**: Instellingen → **Koppeling met je mailbox** → **Verbinding testen**. Daarna staat de inbox bij *Antwoord maken*.
+
+De gegevens voor stap 4 vind je in je mailprogramma bij de accountinstellingen (inkomende server, IMAP).
 
 ## Beveiliging
 

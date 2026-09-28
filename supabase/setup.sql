@@ -118,18 +118,28 @@ begin
   return nv;
 end $$;
 
+-- Alleen controleren of een toegangsbewijs klopt (gebruikt door de mailkoppeling, geeft geen gegevens terug).
+create or replace function public.vault_verify(p_token text) returns boolean
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform public._vault_check(p_token);
+  return true;
+end $$;
+
 -- Rechten: de app (rol anon) mag alleen deze functies aanroepen.
 revoke all on function public._vault_check(text) from public, anon, authenticated;
 revoke all on function public.vault_info() from public;
 revoke all on function public.vault_create(text, integer, text, text) from public;
 revoke all on function public.vault_load(text, bigint) from public;
 revoke all on function public.vault_save(text, text, bigint) from public;
+revoke all on function public.vault_verify(text) from public;
 revoke all on function public.vault_set_admin(text, text, text) from public;
 revoke all on function public.vault_rekey(text, text, text, integer, text, text, bigint) from public;
 grant execute on function public.vault_info() to anon, authenticated;
 grant execute on function public.vault_create(text, integer, text, text) to anon, authenticated;
 grant execute on function public.vault_load(text, bigint) to anon, authenticated;
 grant execute on function public.vault_save(text, text, bigint) to anon, authenticated;
+grant execute on function public.vault_verify(text) to anon, authenticated;
 grant execute on function public.vault_set_admin(text, text, text) to anon, authenticated;
 grant execute on function public.vault_rekey(text, text, text, integer, text, text, bigint) to anon, authenticated;
 
