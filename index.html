@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; worker-src blob: https://cdnjs.cloudflare.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; connect-src https: http://localhost:* http://127.0.0.1:* https://cdnjs.cloudflare.com; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; worker-src blob: https://cdnjs.cloudflare.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https: http://localhost:* http://127.0.0.1:* https://cdnjs.cloudflare.com; form-action 'none'; base-uri 'none'">
 <title>Antwoorden Adviesdrogisterij.nl</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,11 +35,13 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 Nuni
 header { background: var(--panel); }
 .promo { background: var(--brand-lime); color: #fff; font-size: 13px; font-weight: 700; text-align: center; padding: 5px 16px; }
 .logo { font-family: Merriweather, Georgia, serif; font-style: italic; font-weight: 700; color: var(--logo); font-size: 26px; letter-spacing: -.3px; line-height: 1.1; }
+.logo-img { height: 38px; width: auto; vertical-align: middle; }
+h1 { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0; }
 .logo-sub { font-family: Merriweather, Georgia, serif; font-style: italic; color: var(--heading); font-size: 16px; margin-left: 8px; }
 .navbar { background: var(--panel); margin-top: 8px; border-bottom: 1px solid var(--line); }
 .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
 .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0 0; flex-wrap: wrap; }
-h1 { margin: 0; font-weight: 400; }
+h1 { margin: 0; font-weight: 400; font-size: 16px; }
 h1 small { color: var(--muted); font-family: Nunito, system-ui, sans-serif; font-style: normal; font-weight: 400; font-size: 12px; margin-left: 6px; }
 nav { display: flex; gap: 2px; overflow-x: auto; }
 nav button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px 8px; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
@@ -108,7 +110,7 @@ body.locked > header, body.locked > main { display: none; }
 <body class="locked">
 <div id="lock">
   <div class="card">
-    <h2 id="lockTitle"><span class="logo" style="font-size:24px">adviesdrogisterij.nl</span><br><span class="logo-sub" style="margin:0">Antwoorden</span> <small class="appVersion" style="font-weight:400;font-size:12px;color:var(--muted)"></small></h2>
+    <h2 id="lockTitle"><img class="logo-img" src="logo.svg" alt="adviesdrogisterij.nl" style="height:34px"><br><span class="logo-sub" style="margin:0">Antwoorden</span> <small class="appVersion" style="font-weight:400;font-size:12px;color:var(--muted)"></small></h2>
     <p class="note" id="lockIntro"></p>
     <form id="lockForm" autocomplete="off">
       <label for="pw1">Wachtwoord</label>
@@ -129,7 +131,7 @@ body.locked > header, body.locked > main { display: none; }
   <div class="promo">Klantenservice · conceptantwoorden op klantmails</div>
   <div class="wrap">
     <div class="top">
-      <h1><span class="logo">adviesdrogisterij.nl</span><span class="logo-sub">Antwoorden</span> <small class="appVersion" title="Versie van de app"></small></h1>
+      <h1><img class="logo-img" src="logo.svg" alt="adviesdrogisterij.nl"><span class="logo-sub">Antwoorden</span> <small class="appVersion" title="Versie van de app"></small></h1>
       <div class="right"><span class="note" id="syncState" style="margin:0"></span><span class="pill" id="modelPill"></span><button class="btn" id="lockNow" type="button">Vergrendelen</button></div>
     </div>
   </div>
@@ -355,7 +357,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.6.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
