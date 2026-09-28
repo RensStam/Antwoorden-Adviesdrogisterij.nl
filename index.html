@@ -531,10 +531,12 @@ $('fetchModels').addEventListener('click', async () => {
       .sort((a, b) => b.localeCompare(a, 'en', { numeric: true }));
     if (!ids.length) throw new Error('geen tekstmodellen gevonden voor deze sleutel');
     $('modelList').innerHTML = ids.map(m => `<option value="${esc(m)}">`).join('');
+    // Aanbevolen: het nieuwste "gewone" topmodel, zonder toevoeging als -mini, -nano, -pro of -chat-latest
+    const best = settings.provider === 'openai' ? ids.find(m => /^gpt-\d+(\.\d+)?$/.test(m)) : null;
     const sel = $('modelSelect');
-    sel.innerHTML = `<option value="">Kies een model uit de lijst (${ids.length})…</option>` + ids.map(m => `<option value="${esc(m)}"${m === settings.model ? ' selected' : ''}>${esc(m)}</option>`).join('');
+    sel.innerHTML = `<option value="">Kies een model uit de lijst (${ids.length})…</option>` + ids.map(m => `<option value="${esc(m)}"${m === settings.model ? ' selected' : ''}>${esc(m)}${m === best ? '  ★ aanbevolen' : ''}</option>`).join('');
     sel.hidden = false;
-    setStatus(st, `${ids.length} modellen gevonden. Kies er een in de keuzelijst.`);
+    setStatus(st, `${ids.length} modellen gevonden. Kies er een in de keuzelijst.` + (best ? ` Aanbevolen: ${best} (het nieuwste topmodel; dit komt het dichtst bij ChatGPT).` : ''));
   } catch (e) { setStatus(st, 'Mislukt: ' + friendlyError(e), true); }
 });
 
