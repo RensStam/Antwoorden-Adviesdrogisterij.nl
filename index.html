@@ -1,0 +1,903 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; worker-src blob: https://cdnjs.cloudflare.com; style-src 'unsafe-inline'; img-src data:; connect-src https: http://localhost:* http://127.0.0.1:* https://cdnjs.cloudflare.com; form-action 'none'; base-uri 'none'">
+<title>Antwoorden Adviesdrogisterij.nl</title>
+<style>
+:root {
+  --bg: #f6f7f5; --panel: #ffffff; --text: #1d2521; --muted: #5f6b65; --line: #dde2de;
+  --accent: #2f7d5b; --accent-ink: #ffffff; --accent-soft: #e4f1ea; --warn: #9a5b00; --warn-soft: #fff4e0;
+  --err: #b3261e; --err-soft: #fdecea; --field: #fbfcfb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121614; --panel: #1b201e; --text: #e6ebe8; --muted: #9aa6a0; --line: #2d3531;
+    --accent: #5cc095; --accent-ink: #0d1411; --accent-soft: #1f3329; --warn: #f0b35a; --warn-soft: #33281a;
+    --err: #ff8a80; --err-soft: #3a1f1d; --field: #161a18;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121614; --panel: #1b201e; --text: #e6ebe8; --muted: #9aa6a0; --line: #2d3531;
+  --accent: #5cc095; --accent-ink: #0d1411; --accent-soft: #1f3329; --warn: #f0b35a; --warn-soft: #33281a;
+  --err: #ff8a80; --err-soft: #3a1f1d; --field: #161a18;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { background: var(--panel); border-bottom: 1px solid var(--line); }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0 0; flex-wrap: wrap; }
+h1 { font-size: 18px; margin: 0; }
+h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+nav { display: flex; gap: 4px; margin-top: 10px; overflow-x: auto; }
+nav button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; color: var(--muted); font: inherit; cursor: pointer; white-space: nowrap; }
+nav button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+main { padding: 20px 0 40px; }
+section[data-tab] { display: none; }
+section[data-tab].active { display: block; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.card + .card { margin-top: 16px; }
+.card h2 { font-size: 15px; margin: 0 0 10px; }
+label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+label:first-child { margin-top: 0; }
+textarea, input, select { width: 100%; background: var(--field); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font: inherit; }
+textarea { resize: vertical; }
+textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+#email { min-height: 220px; }
+#note { min-height: 70px; }
+#reply { min-height: 340px; }
+#instructions { min-height: 420px; font-size: 14px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row > * { flex: 1 1 140px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+button.btn { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 9px 14px; font: inherit; cursor: pointer; }
+button.btn:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.btn:disabled { opacity: .55; cursor: default; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.chips button { border: 1px solid var(--line); background: var(--field); color: var(--text); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.chips button:hover { border-color: var(--accent); }
+.status { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 1.5em; }
+.status.err { color: var(--err); }
+.note { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+.banner { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 16px; }
+.banner button { margin-left: 6px; }
+.doc { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.doc:last-child { border-bottom: 0; }
+.doc .name { font-weight: 600; overflow-wrap: anywhere; }
+.doc .meta { font-size: 12px; color: var(--muted); }
+.doc .btns { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.doc .btns button { padding: 5px 10px; font-size: 13px; }
+.hist { padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.hist:last-child { border-bottom: 0; }
+.hist .meta { font-size: 12px; color: var(--muted); }
+.hist .snip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill { display: inline-block; font-size: 12px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 8px; }
+details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; }
+.empty { color: var(--muted); font-size: 14px; }
+#lock { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+#lock .card { width: 100%; max-width: 400px; }
+#lock h2 { font-size: 18px; }
+body.locked > header, body.locked > main { display: none; }
+.top .right { display: flex; gap: 8px; align-items: center; }
+.top .right button { padding: 5px 10px; font-size: 13px; }
+</style>
+</head>
+<body class="locked">
+<div id="lock">
+  <div class="card">
+    <h2 id="lockTitle">Antwoorden Adviesdrogisterij.nl</h2>
+    <p class="note" id="lockIntro"></p>
+    <form id="lockForm" autocomplete="off">
+      <label for="pw1">Wachtwoord</label>
+      <input id="pw1" type="password" autocomplete="current-password" required>
+      <div id="pw2Wrap" hidden>
+        <label for="pw2">Herhaal wachtwoord</label>
+        <input id="pw2" type="password" autocomplete="new-password">
+      </div>
+      <div class="actions"><button class="btn primary" id="lockBtn" type="submit">Ontgrendelen</button></div>
+    </form>
+    <div class="status" id="lockStatus"></div>
+    <p class="note" id="forgotWrap" hidden style="margin-top:18px">Wachtwoord vergeten? Het is niet te herstellen. <a href="#" id="forgot" style="color:var(--err)">Alles wissen en opnieuw beginnen</a> (maak daarna je back-up terug).</p>
+  </div>
+</div>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <h1>Antwoorden <small>Adviesdrogisterij.nl</small></h1>
+      <div class="right"><span class="pill" id="modelPill"></span><button class="btn" id="lockNow" type="button">Vergrendelen</button></div>
+    </div>
+    <nav>
+      <button data-go="compose" class="active">Antwoord maken</button>
+      <button data-go="instructions">Instructies</button>
+      <button data-go="knowledge">Kennisbank</button>
+      <button data-go="history">Geschiedenis</button>
+      <button data-go="settings">Instellingen</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="banner" id="setupBanner" hidden>
+    Nog geen AI-model ingesteld. <button class="btn" data-go="settings">Naar instellingen</button>
+  </div>
+
+  <!-- ANTWOORD MAKEN -->
+  <section data-tab="compose" class="active">
+    <div class="grid">
+      <div class="card">
+        <h2>Mail van de klant</h2>
+        <label for="email">Plak hier de e-mail (inclusief eerdere berichten als dat helpt)</label>
+        <textarea id="email" placeholder="Beste Adviesdrogisterij, ik heb vorige week besteld maar…"></textarea>
+        <label for="note">Jouw notitie voor het antwoord (optioneel)</label>
+        <textarea id="note" placeholder="Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123."></textarea>
+        <div class="row" style="margin-top:4px">
+          <div>
+            <label for="tone">Toon</label>
+            <select id="tone">
+              <option value="standaard">Volgens de instructies</option>
+              <option value="vriendelijk">Vriendelijk en persoonlijk</option>
+              <option value="zakelijk">Zakelijk en formeel</option>
+              <option value="kort">Kort en bondig</option>
+              <option value="empathisch">Extra empathisch (klacht)</option>
+            </select>
+          </div>
+          <div>
+            <label for="lang">Taal</label>
+            <select id="lang">
+              <option value="auto">Taal van de klant</option>
+              <option value="Nederlands">Nederlands</option>
+              <option value="Engels">Engels</option>
+              <option value="Duits">Duits</option>
+              <option value="Frans">Frans</option>
+            </select>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn primary" id="genBtn">Antwoord maken</button>
+          <button class="btn" id="clearBtn">Leegmaken</button>
+        </div>
+        <div class="status" id="genStatus"></div>
+      </div>
+
+      <div class="card">
+        <h2>Conceptantwoord</h2>
+        <label for="reply">Je kunt de tekst hieronder zelf aanpassen voordat je hem kopieert</label>
+        <textarea id="reply" placeholder="Hier verschijnt het antwoord…"></textarea>
+        <div class="actions">
+          <button class="btn primary" id="copyBtn">Kopiëren</button>
+          <button class="btn" id="stopBtn" hidden>Stoppen</button>
+        </div>
+        <label for="refine" style="margin-top:14px">Laat het aanpassen</label>
+        <div class="row">
+          <input id="refine" placeholder="Bijv.: noem ook de kortingscode ZORG10" style="flex:3 1 220px">
+          <button class="btn" id="refineBtn" style="flex:0 0 auto">Aanpassen</button>
+        </div>
+        <div class="chips" id="quickChips">
+          <button data-r="Maak het korter.">Korter</button>
+          <button data-r="Maak het wat uitgebreider en behulpzamer.">Uitgebreider</button>
+          <button data-r="Maak de toon vriendelijker en warmer.">Vriendelijker</button>
+          <button data-r="Maak de toon zakelijker.">Zakelijker</button>
+          <button data-r="Gebruik de je-vorm in plaats van de u-vorm.">Je-vorm</button>
+          <button data-r="Gebruik de u-vorm in plaats van de je-vorm.">U-vorm</button>
+          <button data-r="Vertaal het antwoord naar het Engels.">Engels</button>
+        </div>
+        <details style="margin-top:14px">
+          <summary>Welke kennisbank-info is meegestuurd?</summary>
+          <pre class="ctx" id="ctxView">Nog niets.</pre>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- INSTRUCTIES -->
+  <section data-tab="instructions">
+    <div class="card">
+      <h2>Instructies (zoals bij je Custom GPT)</h2>
+      <p class="note">Dit is het "karakter" van de assistent. Je kunt hier de instructies uit je oude ChatGPT-GPT plakken. Wordt automatisch opgeslagen.</p>
+      <label for="signature">Ondertekening</label>
+      <textarea id="signature" style="min-height:80px"></textarea>
+      <label for="instructions">Instructies</label>
+      <textarea id="instructions"></textarea>
+      <div class="actions">
+        <button class="btn" id="loadInstr">Instructiebestand laden (.json, .docx, .txt)</button>
+        <input type="file" id="instrFile" accept=".json,.docx,.txt,.md" hidden>
+        <button class="btn" id="resetInstr">Standaardinstructies terugzetten</button>
+      </div>
+      <div class="status" id="instrStatus"></div>
+    </div>
+  </section>
+
+  <!-- KENNISBANK -->
+  <section data-tab="knowledge">
+    <div class="grid">
+      <div class="card">
+        <h2>Document toevoegen</h2>
+        <p class="note">Zoals de "Knowledge"-bestanden van een GPT: verzendbeleid, retourvoorwaarden, veelgestelde vragen, productinformatie, standaardantwoorden. Bij elke vraag wordt automatisch het meest relevante deel meegestuurd.</p>
+        <label for="kbFile">Bestanden uploaden (Word .docx, .pdf, .txt, .md) — meerdere tegelijk kan</label>
+        <input type="file" id="kbFile" accept=".docx,.txt,.md,.csv,.pdf,.json,.html" multiple>
+        <label for="kbName">Of plak tekst — titel</label>
+        <input id="kbName" placeholder="Bijv.: Retourbeleid">
+        <label for="kbText">Tekst</label>
+        <textarea id="kbText" style="min-height:200px" placeholder="Retourneren kan binnen 30 dagen na ontvangst…"></textarea>
+        <div class="actions">
+          <button class="btn primary" id="kbAdd">Opslaan in kennisbank</button>
+        </div>
+        <div class="status" id="kbStatus"></div>
+      </div>
+      <div class="card">
+        <h2>Kennisbank</h2>
+        <p class="note">Wordt alles meegestuurd bij elke vraag zolang het samen onder de ±60.000 tekens blijft; daarboven de best passende stukken.</p>
+        <div id="kbList"></div>
+        <input type="file" id="kbReplace" accept=".docx,.txt,.md,.csv,.pdf,.json,.html" hidden>
+      </div>
+    </div>
+  </section>
+
+  <!-- GESCHIEDENIS -->
+  <section data-tab="history">
+    <div class="card">
+      <h2>Laatste antwoorden</h2>
+      <p class="note">Alleen opgeslagen in deze browser. Klik om opnieuw te openen.</p>
+      <div id="histList" style="margin-top:8px"></div>
+      <div class="actions"><button class="btn" id="histClear">Geschiedenis wissen</button></div>
+    </div>
+  </section>
+
+  <!-- INSTELLINGEN -->
+  <section data-tab="settings">
+    <div class="grid">
+      <div class="card">
+        <h2>AI-model</h2>
+        <label for="provider">Aanbieder</label>
+        <select id="provider">
+          <option value="mistral">Mistral (Frankrijk, EU — open modellen)</option>
+          <option value="ollama">Ollama (lokaal op je eigen pc, gratis en privé)</option>
+          <option value="openrouter">OpenRouter (alle open modellen, o.a. Llama, Qwen, Mistral)</option>
+          <option value="groq">Groq (zeer snel, Llama-modellen)</option>
+          <option value="custom">Anders (OpenAI-compatibel adres)</option>
+        </select>
+        <p class="note" id="providerHelp"></p>
+        <label for="baseUrl">API-adres</label>
+        <input id="baseUrl">
+        <label for="apiKey">API-sleutel</label>
+        <input id="apiKey" type="password" autocomplete="off" placeholder="Niet nodig voor Ollama">
+        <label for="model">Model</label>
+        <div class="row">
+          <input id="model" list="modelList" style="flex:3 1 200px">
+          <button class="btn" id="fetchModels" style="flex:0 0 auto">Modellen ophalen</button>
+        </div>
+        <datalist id="modelList"></datalist>
+        <label for="temp">Creativiteit (temperatuur): <span id="tempVal"></span></label>
+        <input id="temp" type="range" min="0" max="1" step="0.05">
+        <div class="actions">
+          <button class="btn primary" id="testBtn">Verbinding testen</button>
+        </div>
+        <div class="status" id="setStatus"></div>
+      </div>
+      <div class="card">
+        <h2>Back-up</h2>
+        <p class="note">Alles (instructies, kennisbank, instellingen) staat alleen in deze browser. Maak een back-up om het naar een andere computer of collega over te zetten. De API-sleutel wordt niet meegenomen.</p>
+        <div class="actions">
+          <button class="btn" id="exportBtn">Back-up downloaden</button>
+          <button class="btn" id="importBtn">Back-up terugzetten</button>
+          <input type="file" id="importFile" accept=".json" hidden>
+        </div>
+        <div class="status" id="bkStatus"></div>
+      </div>
+      <div class="card">
+        <h2>Wachtwoord wijzigen</h2>
+        <p class="note">Alle gegevens in deze browser (ook je API-sleutel) zijn versleuteld met je wachtwoord. De app vergrendelt zich na 30 minuten zonder gebruik.</p>
+        <label for="npw1">Nieuw wachtwoord (minimaal 10 tekens)</label>
+        <input id="npw1" type="password" autocomplete="new-password">
+        <label for="npw2">Herhaal nieuw wachtwoord</label>
+        <input id="npw2" type="password" autocomplete="new-password">
+        <div class="actions"><button class="btn" id="chPw">Wachtwoord wijzigen</button></div>
+        <div class="status" id="pwStatus"></div>
+      </div>
+      <div class="card">
+        <h2>Privacy</h2>
+        <p class="note">Klantmails bevatten persoonsgegevens (AVG). Met <b>Ollama</b> blijft alles op je eigen computer. <b>Mistral</b> verwerkt in de EU en biedt een verwerkersovereenkomst. Bij andere aanbieders kun je beter namen, adressen en telefoonnummers weglaten of eerst checken waar data wordt verwerkt.</p>
+        <label style="display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" id="mask" style="width:auto"> Mailadressen, telefoonnummers en IBANs vervangen door [verborgen] voordat ze worden verstuurd</label>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+// ---------- Kluis: alle opgeslagen gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
+(() => {
+'use strict';
+const VAULT_KEY = 'ads_vault', ITER = 600000, MIN_PW = 10, IDLE_MS = 30 * 60 * 1000;
+const te = new TextEncoder(), td = new TextDecoder();
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const $ = id => document.getElementById(id);
+let key = null, salt = null, saveTimer = null;
+
+async function derive(pw, saltBytes) {
+  const base = await crypto.subtle.importKey('raw', te.encode(pw), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: saltBytes, iterations: ITER, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+function readRaw() { try { return JSON.parse(localStorage.getItem(VAULT_KEY)); } catch { return null; } }
+async function persist() {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, te.encode(JSON.stringify(window.VAULT)));
+  try { localStorage.setItem(VAULT_KEY, JSON.stringify({ v: 1, iter: ITER, salt: b64(salt), iv: b64(iv), data: b64(data) })); }
+  catch { alert('Opslaan mislukt: de browseropslag is vol (±5 MB). Verwijder of verklein documenten in de kennisbank.'); }
+}
+window.vaultSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 300); };
+window.vaultChangePassword = async pw => {
+  salt = crypto.getRandomValues(new Uint8Array(16));
+  key = await derive(pw, salt);
+  await persist();
+};
+window.MIN_PW = MIN_PW;
+
+function lockNow() { clearTimeout(saveTimer); if (key) persist().finally(() => location.reload()); else location.reload(); }
+window.vaultLock = lockNow;
+
+const existing = readRaw();
+const setup = !existing;
+$('lockIntro').textContent = setup
+  ? `Kies een wachtwoord (minimaal ${MIN_PW} tekens). Hiermee worden je API-sleutel, instructies en kennisbank versleuteld op deze computer. Het wachtwoord is niet te herstellen, dus bewaar het goed.`
+  : 'Voer je wachtwoord in om te ontgrendelen.';
+$('pw2Wrap').hidden = !setup;
+$('forgotWrap').hidden = setup;
+$('lockBtn').textContent = setup ? 'Wachtwoord instellen' : 'Ontgrendelen';
+$('pw1').setAttribute('autocomplete', setup ? 'new-password' : 'current-password');
+$('pw1').focus();
+
+let fails = 0;
+$('lockForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const st = $('lockStatus'), pw = $('pw1').value;
+  st.classList.remove('err');
+  if (!window.crypto || !crypto.subtle) { st.textContent = 'Deze browser ondersteunt geen versleuteling hier. Open de pagina via https of als bestand in Chrome/Edge.'; st.classList.add('err'); return; }
+  if (setup) {
+    if (pw.length < MIN_PW) { st.textContent = `Gebruik minimaal ${MIN_PW} tekens.`; st.classList.add('err'); return; }
+    if (pw !== $('pw2').value) { st.textContent = 'De wachtwoorden zijn niet gelijk.'; st.classList.add('err'); return; }
+  }
+  $('lockBtn').disabled = true; st.textContent = 'Even geduld…';
+  try {
+    if (setup) {
+      // Oude, onversleutelde gegevens (vorige versie) meenemen en daarna wissen
+      window.VAULT = {};
+      for (const k of ['settings', 'instructions', 'signature', 'kb', 'history']) {
+        const v = localStorage.getItem('ads_' + k);
+        if (v !== null) { try { window.VAULT[k] = JSON.parse(v); } catch {} localStorage.removeItem('ads_' + k); }
+      }
+      await window.vaultChangePassword(pw);
+    } else {
+      salt = unb64(existing.salt);
+      const k = await derive(pw, salt);
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(existing.iv) }, k, unb64(existing.data));
+      window.VAULT = JSON.parse(td.decode(plain));
+      key = k;
+    }
+  } catch {
+    fails++;
+    await new Promise(r => setTimeout(r, Math.min(fails, 5) * 1000)); // vertraging tegen raden
+    st.textContent = 'Onjuist wachtwoord.'; st.classList.add('err');
+    $('lockBtn').disabled = false; $('pw1').select();
+    return;
+  }
+  $('pw1').value = $('pw2').value = '';
+  $('lock').remove();
+  document.body.classList.remove('locked');
+  window.bootApp();
+  // Automatisch vergrendelen bij inactiviteit
+  let idle;
+  const reset = () => { clearTimeout(idle); idle = setTimeout(lockNow, IDLE_MS); };
+  ['click', 'keydown', 'mousemove', 'touchstart'].forEach(ev => document.addEventListener(ev, reset, { passive: true }));
+  reset();
+});
+$('forgot').addEventListener('click', e => {
+  e.preventDefault();
+  if (!confirm('Weet je het zeker? Alle instructies, kennisbank, geschiedenis en de API-sleutel in deze browser worden gewist.')) return;
+  localStorage.removeItem(VAULT_KEY); location.reload();
+});
+})();
+</script>
+<script>
+window.bootApp = () => {
+'use strict';
+
+const DEFAULT_INSTRUCTIONS = `Je bent de klantenservice-assistent van Adviesdrogisterij.nl, een Nederlandse online drogisterij met persoonlijk advies over gezondheid, vitaminen, supplementen, natuurlijke middelen en verzorging. Je schrijft conceptantwoorden op e-mails van klanten, namens het klantenserviceteam. Een medewerker leest je antwoord altijd na voordat het wordt verstuurd.
+
+STIJL
+- Schrijf warm, behulpzaam en deskundig, zoals een ervaren drogist die de klant graag helpt.
+- Gebruik de u-vorm, tenzij de klant zelf duidelijk de je-vorm gebruikt.
+- Begin met een persoonlijke aanhef (bijv. "Beste mevrouw Jansen," of "Beste Peter,"). Is de naam onbekend: "Beste klant,".
+- Bedank de klant kort voor het bericht, beantwoord daarna direct de vraag. Geen overbodige herhaling of wollige zinnen.
+- Korte alinea's. Gebruik alleen opsommingen als er echt meerdere stappen of punten zijn.
+- Sluit af met een behulpzame slotzin en de ondertekening.
+
+FEITEN
+- Gebruik alleen informatie uit de kennisbank, de notitie van de medewerker en de mail van de klant.
+- Verzin NOOIT bestelstatussen, track & trace-codes, levertijden, prijzen, voorraad, kortingscodes of beloftes. Ontbreekt informatie die nodig is, zet dan een duidelijke invulplek in de tekst, zoals [AANVULLEN: verwachte leverdatum].
+- Als de notitie van de medewerker iets zegt, volg dat altijd, ook als het afwijkt van de kennisbank.
+
+GEZONDHEID EN WETGEVING
+- Stel geen diagnoses en geef geen medisch advies dat een arts of apotheker hoort te geven.
+- Doe geen medische claims over supplementen of kruiden (niet "geneest", "voorkomt", "behandelt"). Gebruik alleen toegestane, voorzichtige formuleringen en algemene productinformatie.
+- Adviseer bij zwangerschap, borstvoeding, medicijngebruik, kinderen, ernstige of aanhoudende klachten altijd om eerst te overleggen met huisarts of apotheker.
+- Bij bijwerkingen of klachten na gebruik: toon begrip, adviseer te stoppen met gebruik en contact op te nemen met een arts, en bied aan om te helpen (bijv. retour).
+
+OVERIG
+- Bij een klacht: erken het ongemak oprecht, bied excuses aan waar gepast, en kom met een concrete oplossing of vervolgstap.
+- Geef alleen de tekst van de e-mail terug, zonder onderwerpregel, uitleg of opmerkingen eromheen (behalve invulplekken tussen [ ]).`;
+
+const DEFAULT_SIGNATURE = 'Met een vriendelijke groet,\n\nTeam Adviesdrogisterij.nl';
+
+const PROVIDERS = {
+  mistral: { url: 'https://api.mistral.ai/v1', model: 'mistral-small-latest', key: true,
+    models: ['mistral-small-latest', 'mistral-medium-latest', 'mistral-large-latest', 'open-mistral-nemo'],
+    help: 'Maak een account op console.mistral.ai → API Keys. Mistral Small is een open model, goed in Nederlands en zeer goedkoop (een paar cent per honderd mails).' },
+  ollama: { url: 'http://localhost:11434/v1', model: 'gemma3:12b', key: false,
+    models: ['gemma3:12b', 'gemma3:27b', 'qwen3:14b', 'mistral-small3.2', 'llama3.1:8b'],
+    help: 'Installeer Ollama (ollama.com), voer uit: "ollama pull gemma3:12b". Zet de omgevingsvariabelen OLLAMA_ORIGINS=* en OLLAMA_CONTEXT_LENGTH=32768 en herstart Ollama, anders blokkeert de browser de verbinding. Vereist een pc met minimaal 16 GB geheugen.' },
+  openrouter: { url: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct', key: true,
+    models: ['meta-llama/llama-3.3-70b-instruct', 'mistralai/mistral-small-3.2-24b-instruct', 'qwen/qwen3-235b-a22b-2507', 'google/gemma-3-27b-it'],
+    help: 'Maak een account op openrouter.ai → Keys. Eén sleutel voor honderden open modellen. Klik "Modellen ophalen" voor de actuele lijst.' },
+  groq: { url: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', key: true,
+    models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
+    help: 'Maak een account op console.groq.com → API Keys. Heeft een gratis laag.' },
+  custom: { url: '', model: '', key: true, models: [],
+    help: 'Elk OpenAI-compatibel adres (bijv. LM Studio: http://localhost:1234/v1).' },
+};
+
+// ---------- opslag ----------
+const store = {
+  get(k, d) { return k in window.VAULT ? window.VAULT[k] : d; },
+  set(k, v) { window.VAULT[k] = v; window.vaultSave(); return true; },
+};
+const $ = id => document.getElementById(id);
+
+let settings = Object.assign({ provider: 'mistral', baseUrl: PROVIDERS.mistral.url, model: PROVIDERS.mistral.model, apiKey: '', temp: 0.4, mask: false }, store.get('settings', {}));
+let instructions = store.get('instructions', DEFAULT_INSTRUCTIONS);
+let signature = store.get('signature', DEFAULT_SIGNATURE);
+let kb = store.get('kb', []);
+let history = store.get('history', []);
+let convo = null;       // huidige berichtenreeks
+let controller = null;  // AbortController voor streaming
+
+// ---------- tabs ----------
+function go(tab) {
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.go === tab));
+  document.querySelectorAll('section[data-tab]').forEach(s => s.classList.toggle('active', s.dataset.tab === tab));
+}
+document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => go(b.dataset.go)));
+
+function setStatus(el, msg, err) { el.textContent = msg || ''; el.classList.toggle('err', !!err); }
+
+// ---------- instellingen ----------
+function renderSettings() {
+  $('provider').value = settings.provider;
+  $('baseUrl').value = settings.baseUrl;
+  $('apiKey').value = settings.apiKey;
+  $('model').value = settings.model;
+  $('temp').value = settings.temp;
+  $('tempVal').textContent = settings.temp;
+  $('mask').checked = settings.mask;
+  const p = PROVIDERS[settings.provider];
+  $('providerHelp').textContent = p.help;
+  $('modelList').innerHTML = p.models.map(m => `<option value="${esc(m)}">`).join('');
+  $('modelPill').textContent = settings.model ? settings.model : 'geen model';
+  $('setupBanner').hidden = isConfigured();
+}
+function isConfigured() {
+  return !!(settings.baseUrl && settings.model && (!PROVIDERS[settings.provider].key || settings.apiKey || settings.provider === 'custom'));
+}
+function saveSettings() { store.set('settings', settings); renderSettings(); }
+$('provider').addEventListener('change', e => {
+  const p = PROVIDERS[e.target.value];
+  settings.provider = e.target.value;
+  settings.baseUrl = p.url;
+  settings.model = p.model;
+  saveSettings();
+});
+['baseUrl', 'apiKey', 'model'].forEach(id => $(id).addEventListener('change', e => { settings[id] = e.target.value.trim(); saveSettings(); }));
+$('temp').addEventListener('input', e => { settings.temp = +e.target.value; $('tempVal').textContent = settings.temp; store.set('settings', settings); });
+$('mask').addEventListener('change', e => { settings.mask = e.target.checked; saveSettings(); });
+
+$('fetchModels').addEventListener('click', async () => {
+  const st = $('setStatus');
+  setStatus(st, 'Modellen ophalen…');
+  try {
+    const r = await fetch(settings.baseUrl.replace(/\/$/, '') + '/models', { headers: authHeaders() });
+    if (!r.ok) throw new Error(await errText(r));
+    const j = await r.json();
+    const ids = (j.data || j.models || []).map(m => m.id || m.name).filter(Boolean).sort();
+    $('modelList').innerHTML = ids.map(m => `<option value="${esc(m)}">`).join('');
+    setStatus(st, `${ids.length} modellen gevonden. Klik in het modelveld om te kiezen.`);
+  } catch (e) { setStatus(st, 'Mislukt: ' + friendlyError(e), true); }
+});
+
+$('testBtn').addEventListener('click', async () => {
+  const st = $('setStatus');
+  setStatus(st, 'Testen…');
+  try {
+    let out = '';
+    await chat([{ role: 'user', content: 'Zeg alleen: "Verbinding werkt."' }], t => { out += t; });
+    setStatus(st, 'Gelukt! Antwoord van het model: ' + out.trim().slice(0, 120));
+  } catch (e) { setStatus(st, 'Mislukt: ' + friendlyError(e), true); }
+});
+
+// ---------- instructies ----------
+$('instructions').value = instructions;
+$('signature').value = signature;
+$('instructions').addEventListener('input', e => { instructions = e.target.value; store.set('instructions', instructions); setStatus($('instrStatus'), 'Opgeslagen.'); });
+$('signature').addEventListener('input', e => { signature = e.target.value; store.set('signature', signature); });
+$('loadInstr').addEventListener('click', () => $('instrFile').click());
+$('instrFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    let t = (await readAny(f)).trim();
+    if (/\.json$/i.test(f.name)) t = JSON.stringify(JSON.parse(t), null, 1);
+    if (!confirm(`De huidige instructies vervangen door "${f.name}"?`)) return;
+    instructions = t; $('instructions').value = t; store.set('instructions', t);
+    setStatus($('instrStatus'), `"${f.name}" geladen (${t.length.toLocaleString('nl-NL')} tekens).`);
+  } catch (err) { setStatus($('instrStatus'), 'Kon bestand niet lezen: ' + err.message, true); }
+  e.target.value = '';
+});
+$('resetInstr').addEventListener('click', () => {
+  if (!confirm('Je eigen instructies overschrijven met de standaardtekst?')) return;
+  instructions = DEFAULT_INSTRUCTIONS; $('instructions').value = instructions; store.set('instructions', instructions);
+  setStatus($('instrStatus'), 'Standaardinstructies teruggezet.');
+});
+
+// ---------- kennisbank ----------
+function renderKb() {
+  const el = $('kbList');
+  if (!kb.length) { el.innerHTML = '<p class="empty">Nog leeg. Voeg bijvoorbeeld je verzend- en retourbeleid, FAQ en standaardantwoorden toe.</p>'; return; }
+  el.innerHTML = kb.map((d, i) => `
+    <div class="doc">
+      <div><div class="name">${esc(d.name)}</div><div class="meta">${d.text.length.toLocaleString('nl-NL')} tekens${d.updated ? ' · bijgewerkt ' + new Date(d.updated).toLocaleDateString('nl-NL') : ''}</div></div>
+      <div class="btns"><button class="btn" data-new="${i}">Nieuwe versie</button><button class="btn" data-edit="${i}">Bewerken</button><button class="btn" data-del="${i}">Verwijderen</button></div>
+    </div>`).join('');
+}
+function saveKb() {
+  if (!store.set('kb', kb)) { setStatus($('kbStatus'), 'Opslaan mislukt: browseropslag is vol (±5 MB). Verwijder of verklein documenten.', true); return false; }
+  renderKb(); return true;
+}
+$('kbList').addEventListener('click', e => {
+  const del = e.target.dataset.del, edit = e.target.dataset.edit;
+  if (e.target.dataset.new !== undefined) { replaceIdx = +e.target.dataset.new; $('kbReplace').click(); return; }
+  if (del !== undefined && confirm(`"${kb[del].name}" verwijderen?`)) { kb.splice(+del, 1); saveKb(); }
+  if (edit !== undefined) {
+    const d = kb.splice(+edit, 1)[0];
+    $('kbName').value = d.name; $('kbText').value = d.text; saveKb();
+    setStatus($('kbStatus'), 'Pas aan en klik op "Opslaan in kennisbank".');
+  }
+});
+$('kbAdd').addEventListener('click', () => {
+  const name = $('kbName').value.trim() || 'Notitie ' + new Date().toLocaleDateString('nl-NL');
+  const text = $('kbText').value.trim();
+  if (!text) { setStatus($('kbStatus'), 'Er is geen tekst ingevuld.', true); return; }
+  upsertDoc(name, text);
+  if (saveKb()) { $('kbName').value = ''; $('kbText').value = ''; setStatus($('kbStatus'), `"${name}" opgeslagen.`); }
+});
+$('kbFile').addEventListener('change', async e => {
+  const st = $('kbStatus');
+  for (const f of e.target.files) {
+    setStatus(st, `"${f.name}" lezen…`);
+    try {
+      const text = await readAny(f);
+      const clean = (/\.html?$/i.test(f.name) ? new DOMParser().parseFromString(text, 'text/html').body.innerText : text).trim();
+      if (!clean) throw new Error('geen tekst gevonden (is het een gescande PDF?)');
+      const replaced = upsertDoc(f.name.replace(/\.[^.]+$/, ''), clean);
+      if (saveKb()) setStatus(st, `"${f.name}" ${replaced ? 'bijgewerkt (oude versie vervangen)' : 'toegevoegd'}.`);
+    } catch (err) { setStatus(st, `"${f.name}" mislukt: ${err.message}`, true); }
+  }
+  e.target.value = '';
+});
+// Document toevoegen, of bijwerken als er al een document met dezelfde naam is
+function upsertDoc(name, text) {
+  const i = kb.findIndex(d => d.name.toLowerCase() === name.toLowerCase());
+  const doc = { name, text, updated: Date.now() };
+  if (i >= 0) { kb[i] = doc; return true; }
+  kb.push(doc); return false;
+}
+let replaceIdx = -1;
+$('kbReplace').addEventListener('change', async e => {
+  const f = e.target.files[0], st = $('kbStatus'); e.target.value = '';
+  if (!f || replaceIdx < 0) return;
+  try {
+    const t = (await readAny(f)).trim();
+    if (!t) throw new Error('geen tekst gevonden');
+    const old = kb[replaceIdx].name;
+    kb[replaceIdx] = { name: old, text: t, updated: Date.now() };
+    if (saveKb()) setStatus(st, `"${old}" bijgewerkt met ${f.name}.`);
+  } catch (err) { setStatus(st, `Bijwerken mislukt: ${err.message}`, true); }
+  replaceIdx = -1;
+});
+async function readAny(f) {
+  if (/\.pdf$/i.test(f.name)) return readPdf(f);
+  if (/\.docx$/i.test(f.name)) return readDocx(f);
+  return f.text();
+}
+// Word (.docx) lezen zonder externe bibliotheek: zip openen, word/document.xml uitpakken
+async function readDocx(file) {
+  const buf = new Uint8Array(await file.arrayBuffer()), dv = new DataView(buf.buffer);
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('geen geldig Word-bestand');
+  let off = dv.getUint32(eocd + 16, true);
+  const n = dv.getUint16(eocd + 10, true);
+  for (let k = 0; k < n; k++) {
+    const method = dv.getUint16(off + 10, true), csize = dv.getUint32(off + 20, true);
+    const nl = dv.getUint16(off + 28, true), el = dv.getUint16(off + 30, true), cl = dv.getUint16(off + 32, true);
+    const lho = dv.getUint32(off + 42, true);
+    const name = new TextDecoder().decode(buf.subarray(off + 46, off + 46 + nl));
+    off += 46 + nl + el + cl;
+    if (name !== 'word/document.xml') continue;
+    const start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+    let data = buf.subarray(start, start + csize);
+    if (method === 8) data = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    const xml = new DOMParser().parseFromString(new TextDecoder().decode(data), 'application/xml');
+    const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    const para = p => [...p.getElementsByTagNameNS(W, '*')].map(x => x.localName === 't' ? x.textContent : x.localName === 'tab' ? '\t' : (x.localName === 'br' || x.localName === 'cr') ? '\n' : '').join('');
+    const out = [];
+    for (const el of xml.getElementsByTagNameNS(W, 'body')[0].children) {
+      if (el.localName === 'p') out.push(para(el));
+      else if (el.localName === 'tbl') for (const tr of el.getElementsByTagNameNS(W, 'tr')) out.push([...tr.getElementsByTagNameNS(W, 'tc')].map(tc => [...tc.getElementsByTagNameNS(W, 'p')].map(para).join(' ')).join(' | '));
+    }
+    return out.join('\n').replace(/\n{3,}/g, '\n\n');
+  }
+  throw new Error('geen tekst gevonden in Word-bestand');
+}
+async function readPdf(file) {
+  if (!window.pdfjsLib) throw new Error('PDF-lezer niet geladen (geen internet?)');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const c = await (await pdf.getPage(i)).getTextContent();
+    pages.push(c.items.map(it => it.str + (it.hasEOL ? '\n' : ' ')).join(''));
+  }
+  return pages.join('\n\n');
+}
+
+// Eenvoudige zoekfunctie: kleine kennisbank → alles meesturen; grote → de best passende stukken.
+const STOP = new Set('de het een en van in op te dat die is voor met niet aan er als bij ook maar om dan zijn wordt was naar nog wel uit door heb heeft hebben ben kan kunnen mijn uw jullie ik je u we wij zij hij ze dit deze wat hoe waar wanneer graag vriendelijke groet beste dank bedankt alvast mvg hallo'.split(' '));
+const words = s => (s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').match(/[a-z0-9]{3,}/g) || []).filter(w => !STOP.has(w));
+const FULL_LIMIT = 60000, PART_LIMIT = 24000; // tekens; ±4 tekens per token
+function selectKnowledge(query) {
+  const total = kb.reduce((n, d) => n + d.text.length, 0);
+  if (!kb.length) return '';
+  if (total <= FULL_LIMIT) return kb.map(d => `### ${d.name}\n${d.text}`).join('\n\n');
+  const chunks = [];
+  kb.forEach(d => {
+    let buf = '';
+    d.text.split(/\n\s*\n/).forEach(p => {
+      if (buf && buf.length + p.length > 900) { chunks.push({ doc: d.name, text: buf }); buf = ''; }
+      buf += (buf ? '\n\n' : '') + p;
+    });
+    if (buf) chunks.push({ doc: d.name, text: buf });
+  });
+  const df = new Map();
+  const cw = chunks.map(c => { const s = new Set(words(c.doc + ' ' + c.text)); s.forEach(w => df.set(w, (df.get(w) || 0) + 1)); return s; });
+  const q = [...new Set(words(query))];
+  chunks.forEach((c, i) => {
+    c.score = q.reduce((s, w) => {
+      if (cw[i].has(w)) return s + Math.log(1 + chunks.length / df.get(w));
+      // deelwoord-match (bijv. "retour" in "retourneren")
+      for (const x of cw[i]) if (w.length > 4 && (x.startsWith(w) || w.startsWith(x)) && x.length > 4) return s + 0.5 * Math.log(1 + chunks.length / (df.get(x) || 1));
+      return s;
+    }, 0) / Math.sqrt(1 + c.text.length / 900);
+  });
+  const picked = []; let size = 0;
+  for (const c of [...chunks].sort((a, b) => b.score - a.score)) {
+    if (c.score <= 0 || size + c.text.length > PART_LIMIT) continue;
+    picked.push(c); size += c.text.length;
+  }
+  return picked.map(c => `### ${c.doc}\n${c.text}`).join('\n\n');
+}
+
+// ---------- AI-verbinding ----------
+function authHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  if (settings.apiKey) h.Authorization = 'Bearer ' + settings.apiKey;
+  if (settings.provider === 'openrouter') { h['X-Title'] = 'Antwoorden Adviesdrogisterij.nl'; }
+  return h;
+}
+async function errText(r) {
+  let t = ''; try { t = await r.text(); const j = JSON.parse(t); t = j.error?.message || j.message || j.detail || t; } catch {}
+  return `${r.status} ${typeof t === 'string' ? t.slice(0, 300) : JSON.stringify(t).slice(0, 300)}`;
+}
+function friendlyError(e) {
+  const m = String(e.message || e);
+  if (e.name === 'AbortError') return 'gestopt.';
+  if (/Failed to fetch|NetworkError|Load failed/i.test(m)) {
+    return settings.provider === 'ollama'
+      ? 'geen verbinding met Ollama. Draait Ollama, en staat OLLAMA_ORIGINS op * ? (daarna Ollama herstarten)'
+      : 'geen verbinding. Controleer het API-adres en je internet. (Sommige aanbieders blokkeren browsers; probeer dan OpenRouter.)';
+  }
+  if (/^401|^403/.test(m)) return 'API-sleutel ongeldig of zonder rechten. ' + m;
+  if (/^404/.test(m)) return 'model of adres niet gevonden. Controleer de modelnaam. ' + m;
+  if (/^429/.test(m)) return 'te veel verzoeken of tegoed op. ' + m;
+  return m;
+}
+async function chat(messages, onToken) {
+  if (!isConfigured()) throw new Error('Nog geen AI-model ingesteld (zie Instellingen).');
+  controller = new AbortController();
+  const r = await fetch(settings.baseUrl.replace(/\/$/, '') + '/chat/completions', {
+    method: 'POST', headers: authHeaders(), signal: controller.signal,
+    body: JSON.stringify({ model: settings.model, messages, temperature: settings.temp, stream: true }),
+  });
+  if (!r.ok) throw new Error(await errText(r));
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  let buf = '', thinking = false;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split('\n'); buf = lines.pop();
+    for (const line of lines) {
+      const s = line.trim();
+      if (!s.startsWith('data:')) continue;
+      const data = s.slice(5).trim();
+      if (data === '[DONE]') return;
+      let j; try { j = JSON.parse(data); } catch { continue; }
+      if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+      let t = j.choices?.[0]?.delta?.content;
+      if (!t) continue;
+      // "denk"-tekst van redeneermodellen (bijv. Qwen3) niet tonen
+      if (t.includes('<think>')) { thinking = true; t = t.split('<think>')[0]; }
+      if (thinking) { if (t.includes('</think>')) { thinking = false; t = t.split('</think>').pop(); } else continue; }
+      if (t) onToken(t);
+    }
+  }
+}
+
+// ---------- antwoord maken ----------
+function mask(s) {
+  if (!settings.mask) return s;
+  return s.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[e-mail verborgen]')
+    .replace(/\b[A-Z]{2}\d{2}\s?[A-Z]{4}(\s?\d{4}){2}\s?\d{2}\b/gi, '[IBAN verborgen]')
+    .replace(/(\+31|0031|\b0)[\s-]?\d(?:[\s-]?\d){8}\b/g, '[telefoon verborgen]');
+}
+function buildSystem(knowledge) {
+  const tone = { standaard: 'volgens de instructies', vriendelijk: 'vriendelijk en persoonlijk', zakelijk: 'zakelijk en formeel', kort: 'kort en bondig (maximaal zo\'n 5 zinnen)', empathisch: 'extra empathisch en begripvol; de klant is ontevreden' }[$('tone').value];
+  const lang = $('lang').value === 'auto' ? 'dezelfde taal als de klant' : $('lang').value;
+  const instr = instructions.trim().startsWith('{')
+    ? `Hieronder staan je instructies en de communicatiehandleiding van Adviesdrogisterij.nl in JSON-formaat. Volg ze strikt; ze gaan voor alles hieronder, behalve de notitie van de medewerker.\n\n${instructions}`
+    : instructions;
+  return `${instr}
+
+VOOR DIT ANTWOORD
+- Toon: ${tone}.
+- Taal: ${lang}.
+- Sluit af met deze ondertekening (vertaal alleen als het antwoord niet in het Nederlands is):
+${signature}
+- Vandaag is het ${new Date().toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}.
+
+KENNISBANK (sjablonen en beleid; pas het juiste sjabloon toe als dat er is)
+${knowledge || '(De kennisbank is leeg. Verzin geen beleid; gebruik invulplekken [AANVULLEN: …] waar nodig.)'}`;
+}
+
+async function run(messages) {
+  const out = $('reply'), st = $('genStatus');
+  out.value = ''; setStatus(st, 'Bezig met schrijven…');
+  $('genBtn').disabled = $('refineBtn').disabled = true; $('stopBtn').hidden = false;
+  let text = '';
+  try {
+    await chat(messages, t => { text += t; out.value = text; out.scrollTop = out.scrollHeight; });
+    text = text.trim(); out.value = text;
+    convo = [...messages, { role: 'assistant', content: text }];
+    setStatus(st, /\[AANVULLEN/i.test(text) ? 'Klaar — let op: vul de [AANVULLEN]-plekken nog in.' : 'Klaar. Lees het na en pas aan waar nodig.');
+    saveHistory(text);
+  } catch (e) {
+    setStatus(st, 'Er ging iets mis: ' + friendlyError(e), true);
+    if (text) convo = [...messages, { role: 'assistant', content: text }];
+  } finally {
+    $('genBtn').disabled = $('refineBtn').disabled = false; $('stopBtn').hidden = true; controller = null;
+  }
+}
+
+$('genBtn').addEventListener('click', () => {
+  const email = $('email').value.trim();
+  if (!email) { setStatus($('genStatus'), 'Plak eerst de mail van de klant.', true); return; }
+  if (!isConfigured()) { go('settings'); setStatus($('setStatus'), 'Stel eerst een AI-model in.', true); return; }
+  const note = $('note').value.trim();
+  const knowledge = selectKnowledge(email + ' ' + note);
+  $('ctxView').textContent = knowledge || '(kennisbank is leeg)';
+  const user = `MAIL VAN DE KLANT:\n"""\n${mask(email)}\n"""\n\n${note ? `NOTITIE VAN DE MEDEWERKER (volg deze):\n${mask(note)}\n\n` : ''}Schrijf het antwoord op deze mail.`;
+  run([{ role: 'system', content: buildSystem(knowledge) }, { role: 'user', content: user }]);
+});
+
+function refine(instruction) {
+  if (!convo) { setStatus($('genStatus'), 'Maak eerst een antwoord.', true); return; }
+  const msgs = convo.slice(0, -1);
+  msgs.push({ role: 'assistant', content: $('reply').value }); // eigen aanpassingen meenemen
+  msgs.push({ role: 'user', content: `${instruction}\n\nGeef opnieuw alleen de volledige e-mailtekst.` });
+  run(msgs);
+}
+$('refineBtn').addEventListener('click', () => { const v = $('refine').value.trim(); if (v) { refine(v); $('refine').value = ''; } });
+$('refine').addEventListener('keydown', e => { if (e.key === 'Enter') $('refineBtn').click(); });
+$('quickChips').addEventListener('click', e => { if (e.target.dataset.r) refine(e.target.dataset.r); });
+$('stopBtn').addEventListener('click', () => controller && controller.abort());
+$('copyBtn').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('reply').value); }
+  catch { $('reply').select(); document.execCommand('copy'); }
+  setStatus($('genStatus'), 'Gekopieerd naar klembord.');
+});
+$('clearBtn').addEventListener('click', () => {
+  $('email').value = $('note').value = $('reply').value = ''; convo = null;
+  $('ctxView').textContent = 'Nog niets.'; setStatus($('genStatus'), '');
+});
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && document.activeElement.closest('section[data-tab="compose"]')) $('genBtn').click(); });
+
+// ---------- geschiedenis ----------
+function saveHistory(reply) {
+  history.unshift({ t: Date.now(), email: $('email').value, note: $('note').value, reply });
+  history = history.slice(0, 30);
+  store.set('history', history); renderHistory();
+}
+function renderHistory() {
+  const el = $('histList');
+  el.innerHTML = history.length ? history.map((h, i) => `
+    <div class="hist" data-h="${i}">
+      <div class="meta">${new Date(h.t).toLocaleString('nl-NL')}</div>
+      <div class="snip">${esc(h.email.replace(/\s+/g, ' ').slice(0, 140))}</div>
+    </div>`).join('') : '<p class="empty">Nog geen antwoorden.</p>';
+}
+$('histList').addEventListener('click', e => {
+  const n = e.target.closest('[data-h]'); if (!n) return;
+  const h = history[+n.dataset.h];
+  $('email').value = h.email; $('note').value = h.note; $('reply').value = h.reply; convo = null;
+  setStatus($('genStatus'), 'Oud antwoord geopend. Klik "Antwoord maken" om opnieuw te genereren.');
+  go('compose');
+});
+$('histClear').addEventListener('click', () => { if (confirm('Geschiedenis wissen?')) { history = []; store.set('history', history); renderHistory(); } });
+
+// ---------- back-up ----------
+$('exportBtn').addEventListener('click', () => {
+  const { apiKey, ...safe } = settings;
+  const blob = new Blob([JSON.stringify({ version: 1, settings: safe, instructions, signature, kb }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `antwoorden-adviesdrogisterij-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+$('importBtn').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    if (!confirm('Huidige instructies en kennisbank vervangen door de back-up?')) return;
+    if (d.settings) settings = Object.assign(settings, d.settings, { apiKey: settings.apiKey });
+    if (d.instructions) instructions = d.instructions;
+    if (d.signature) signature = d.signature;
+    if (Array.isArray(d.kb)) kb = d.kb;
+    store.set('settings', settings); store.set('instructions', instructions); store.set('signature', signature); saveKb();
+    $('instructions').value = instructions; $('signature').value = signature; renderSettings();
+    setStatus($('bkStatus'), 'Back-up teruggezet.');
+  } catch (err) { setStatus($('bkStatus'), 'Kon back-up niet lezen: ' + err.message, true); }
+  e.target.value = '';
+});
+
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+$('lockNow').addEventListener('click', () => window.vaultLock());
+$('chPw').addEventListener('click', async () => {
+  const a = $('npw1').value, b = $('npw2').value, st = $('pwStatus');
+  if (a.length < window.MIN_PW) { setStatus(st, `Gebruik minimaal ${window.MIN_PW} tekens.`, true); return; }
+  if (a !== b) { setStatus(st, 'De wachtwoorden zijn niet gelijk.', true); return; }
+  await window.vaultChangePassword(a);
+  $('npw1').value = $('npw2').value = '';
+  setStatus(st, 'Wachtwoord gewijzigd.');
+});
+
+renderSettings(); renderKb(); renderHistory();
+};
+</script>
+</body>
+</html>
