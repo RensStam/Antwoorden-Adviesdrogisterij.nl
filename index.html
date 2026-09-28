@@ -233,7 +233,7 @@ body.locked > header, body.locked > main { display: none; }
       </div>
       <div class="card">
         <h2>Kennisbank</h2>
-        <p class="note">Wordt alles meegestuurd bij elke vraag zolang het samen onder de ±60.000 tekens blijft; daarboven de best passende stukken.</p>
+        <p class="note">Aangevinkte documenten gaan bij elke mail volledig mee. Van uitgevinkte documenten (bijv. grote Algemene voorwaarden) gaan alleen de stukken mee die bij de vraag passen.</p>
         <div id="kbList"></div>
         <input type="file" id="kbReplace" accept=".docx,.txt,.md,.csv,.pdf,.json,.html" hidden>
       </div>
@@ -577,9 +577,11 @@ $('resetInstr').addEventListener('click', () => {
 function renderKb() {
   const el = $('kbList');
   if (!kb.length) { el.innerHTML = '<p class="empty">Nog leeg. Voeg bijvoorbeeld je verzend- en retourbeleid, FAQ en standaardantwoorden toe.</p>'; return; }
-  el.innerHTML = kb.map((d, i) => `
+  const always = kb.filter(d => d.mode !== 'zoeken').reduce((n, d) => n + d.text.length, 0);
+  el.innerHTML = `<p class="note" style="margin:0 0 6px">Altijd meegestuurd: <b>${always.toLocaleString('nl-NL')} tekens</b> (±${Math.round(always / 3.5 / 1000)}k tokens per mail).${always > 100000 ? ' Dat is veel: vink grote, zelden nodige documenten uit om kosten te sparen.' : ''}</p>` + kb.map((d, i) => `
     <div class="doc">
-      <div><div class="name">${esc(d.name)}</div><div class="meta">${d.text.length.toLocaleString('nl-NL')} tekens${d.updated ? ' · bijgewerkt ' + new Date(d.updated).toLocaleDateString('nl-NL') : ''}</div></div>
+      <div><div class="name">${esc(d.name)}</div><div class="meta">${d.text.length.toLocaleString('nl-NL')} tekens${d.updated ? ' · bijgewerkt ' + new Date(d.updated).toLocaleDateString('nl-NL') : ''}</div>
+        <label class="meta" style="display:flex;gap:6px;align-items:center;margin:4px 0 0;cursor:pointer"><input type="checkbox" data-mode="${i}" style="width:auto;margin:0"${d.mode !== 'zoeken' ? ' checked' : ''}> Altijd volledig meesturen</label></div>
       <div class="btns"><button class="btn" data-new="${i}">Nieuwe versie</button><button class="btn" data-edit="${i}">Bewerken</button><button class="btn" data-del="${i}">Verwijderen</button></div>
     </div>`).join('');
 }
@@ -587,12 +589,18 @@ function saveKb() {
   if (!store.set('kb', kb)) { setStatus($('kbStatus'), 'Opslaan mislukt: browseropslag is vol (±5 MB). Verwijder of verklein documenten.', true); return false; }
   renderKb(); return true;
 }
+$('kbList').addEventListener('change', e => {
+  const i = e.target.dataset.mode; if (i === undefined) return;
+  kb[+i].mode = e.target.checked ? 'altijd' : 'zoeken'; saveKb();
+  setStatus($('kbStatus'), e.target.checked ? `"${kb[+i].name}" gaat nu altijd volledig mee.` : `Van "${kb[+i].name}" gaan alleen de passende stukken mee.`);
+});
 $('kbList').addEventListener('click', e => {
   const del = e.target.dataset.del, edit = e.target.dataset.edit;
   if (e.target.dataset.new !== undefined) { replaceIdx = +e.target.dataset.new; $('kbReplace').click(); return; }
   if (del !== undefined && confirm(`"${kb[del].name}" verwijderen?`)) { kb.splice(+del, 1); saveKb(); }
   if (edit !== undefined) {
     const d = kb.splice(+edit, 1)[0];
+    editMode = d.mode;
     $('kbName').value = d.name; $('kbText').value = d.text; saveKb();
     setStatus($('kbStatus'), 'Pas aan en klik op "Opslaan in kennisbank".');
   }
@@ -600,8 +608,9 @@ $('kbList').addEventListener('click', e => {
 $('kbAdd').addEventListener('click', () => {
   const name = $('kbName').value.trim() || 'Notitie ' + new Date().toLocaleDateString('nl-NL');
   const text = $('kbText').value.trim();
-  if (!text) { setStatus($('kbStatus'), 'Er is geen tekst ingevuld.', true); return; }
+  if (!text) { setStatus($('kbStatus'), 'Deze knop is alleen voor geplakte tekst en het tekstvak is leeg. Geüploade bestanden worden automatisch opgeslagen.', true); return; }
   upsertDoc(name, text);
+  if (editMode) { kb.find(d => d.name === name).mode = editMode; editMode = null; }
   if (saveKb()) { $('kbName').value = ''; $('kbText').value = ''; setStatus($('kbStatus'), `"${name}" opgeslagen.`); }
 });
 $('kbFile').addEventListener('change', async e => {
@@ -613,7 +622,7 @@ $('kbFile').addEventListener('change', async e => {
       const clean = (/\.html?$/i.test(f.name) ? new DOMParser().parseFromString(text, 'text/html').body.innerText : text).trim();
       if (!clean) throw new Error('geen tekst gevonden (is het een gescande PDF?)');
       const replaced = upsertDoc(f.name.replace(/\.[^.]+$/, ''), clean);
-      if (saveKb()) setStatus(st, `"${f.name}" ${replaced ? 'bijgewerkt (oude versie vervangen)' : 'toegevoegd'}.`);
+      if (saveKb()) setStatus(st, `"${f.name}" ${replaced ? 'bijgewerkt (oude versie vervangen)' : 'toegevoegd'} en opgeslagen.`);
     } catch (err) { setStatus(st, `"${f.name}" mislukt: ${err.message}`, true); }
   }
   e.target.value = '';
@@ -622,10 +631,10 @@ $('kbFile').addEventListener('change', async e => {
 function upsertDoc(name, text) {
   const i = kb.findIndex(d => d.name.toLowerCase() === name.toLowerCase());
   const doc = { name, text, updated: Date.now() };
-  if (i >= 0) { kb[i] = doc; return true; }
+  if (i >= 0) { doc.mode = kb[i].mode; kb[i] = doc; return true; }
   kb.push(doc); return false;
 }
-let replaceIdx = -1;
+let replaceIdx = -1, editMode = null;
 $('kbReplace').addEventListener('change', async e => {
   const f = e.target.files[0], st = $('kbStatus'); e.target.value = '';
   if (!f || replaceIdx < 0) return;
@@ -633,7 +642,7 @@ $('kbReplace').addEventListener('change', async e => {
     const t = (await readAny(f)).trim();
     if (!t) throw new Error('geen tekst gevonden');
     const old = kb[replaceIdx].name;
-    kb[replaceIdx] = { name: old, text: t, updated: Date.now() };
+    kb[replaceIdx] = { name: old, text: t, updated: Date.now(), mode: kb[replaceIdx].mode };
     if (saveKb()) setStatus(st, `"${old}" bijgewerkt met ${f.name}.`);
   } catch (err) { setStatus(st, `Bijwerken mislukt: ${err.message}`, true); }
   replaceIdx = -1;
@@ -685,16 +694,16 @@ async function readPdf(file) {
   return pages.join('\n\n');
 }
 
-// Eenvoudige zoekfunctie: kleine kennisbank → alles meesturen; grote → de best passende stukken.
+// Documenten met "Altijd volledig meesturen" gaan helemaal mee; van de andere alleen de best passende stukken.
 const STOP = new Set('de het een en van in op te dat die is voor met niet aan er als bij ook maar om dan zijn wordt was naar nog wel uit door heb heeft hebben ben kan kunnen mijn uw jullie ik je u we wij zij hij ze dit deze wat hoe waar wanneer graag vriendelijke groet beste dank bedankt alvast mvg hallo'.split(' '));
 const words = s => (s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').match(/[a-z0-9]{3,}/g) || []).filter(w => !STOP.has(w));
-const FULL_LIMIT = 60000, PART_LIMIT = 24000; // tekens; ±4 tekens per token
+const PART_LIMIT = 16000; // tekens uit de niet-aangevinkte documenten; ±3,5 tekens per token
 function selectKnowledge(query) {
-  const total = kb.reduce((n, d) => n + d.text.length, 0);
-  if (!kb.length) return '';
-  if (total <= FULL_LIMIT) return kb.map(d => `### ${d.name}\n${d.text}`).join('\n\n');
+  const full = kb.filter(d => d.mode !== 'zoeken').map(d => `### ${d.name}\n${d.text}`).join('\n\n');
+  const rest = kb.filter(d => d.mode === 'zoeken');
+  if (!rest.length) return full;
   const chunks = [];
-  kb.forEach(d => {
+  rest.forEach(d => {
     let buf = '';
     d.text.split(/\n\s*\n/).forEach(p => {
       if (buf && buf.length + p.length > 900) { chunks.push({ doc: d.name, text: buf }); buf = ''; }
@@ -718,7 +727,8 @@ function selectKnowledge(query) {
     if (c.score <= 0 || size + c.text.length > PART_LIMIT) continue;
     picked.push(c); size += c.text.length;
   }
-  return picked.map(c => `### ${c.doc}\n${c.text}`).join('\n\n');
+  const parts = picked.map(c => `### ${c.doc} (fragment)\n${c.text}`).join('\n\n');
+  return [full, parts].filter(Boolean).join('\n\n');
 }
 
 // ---------- AI-verbinding ----------
