@@ -126,6 +126,9 @@ body.locked > header, body.locked > main { display: none; }
 </header>
 
 <main class="wrap">
+  <div class="banner" id="updateBanner" hidden>
+    Er is een nieuwe versie van de app: <b id="updateVersion"></b>. <button class="btn primary" id="updateBtn">Nu verversen</button>
+  </div>
   <div class="banner" id="setupBanner" hidden>
     Nog geen AI-model ingesteld. <button class="btn" data-go="settings">Naar instellingen</button>
   </div>
@@ -179,7 +182,7 @@ body.locked > header, body.locked > main { display: none; }
         <label for="refine" style="margin-top:14px">Laat het aanpassen <span style="font-size:12px">(Enter = versturen, Shift + Enter = nieuwe regel)</span></label>
         <textarea id="refine" placeholder="Bijv.: noem ook de kortingscode ZORG10 en zeg dat de bestelling morgen wordt verzonden." style="min-height:110px"></textarea>
         <div class="actions" style="margin-top:8px">
-          <button class="btn" id="refineBtn">Aanpassen</button>
+          <button class="btn primary" id="refineBtn">Aanpassen</button>
         </div>
         <div class="chips" id="quickChips">
           <button data-r="Maak het korter.">Korter</button>
@@ -317,7 +320,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -437,10 +440,10 @@ window.vaultChangePassword = async pw => {
 window.MIN_PW = MIN_PW;
 window.vaultMode = SERVER ? 'server' : 'local';
 
-async function lockNow() {
+async function lockNow(url) {
   clearTimeout(saveTimer);
   if (key && (!SERVER || dirty.size)) { try { await persist(); } catch {} }
-  location.reload();
+  if (typeof url === 'string') location.replace(url); else location.reload();
 }
 window.vaultLock = lockNow;
 
@@ -1090,6 +1093,20 @@ $('importFile').addEventListener('change', async e => {
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 $('lockNow').addEventListener('click', () => window.vaultLock());
+
+// Nieuwe versie online? De browser bewaart pagina's soms even; dan een melding tonen
+const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
+async function checkUpdate() {
+  if (!/^https?:$/.test(location.protocol)) return;
+  try {
+    const html = await (await fetch(location.pathname + '?check=' + Date.now(), { cache: 'no-store' })).text();
+    const m = html.match(/const APP_VERSION = '([\d.]+)'/);
+    if (m && newer(m[1], APP_VERSION)) { $('updateVersion').textContent = 'v' + m[1]; $('updateBanner').hidden = false; }
+  } catch {}
+}
+$('updateBtn').addEventListener('click', () => window.vaultLock(location.pathname + '?v=' + $('updateVersion').textContent.slice(1)));
+checkUpdate(); setInterval(checkUpdate, 10 * 60 * 1000);
+window.addEventListener('focus', checkUpdate);
 $('chPw').addEventListener('click', async () => {
   const a = $('npw1').value, b = $('npw2').value, st = $('pwStatus');
   if (a.length < window.MIN_PW) { setStatus(st, `Gebruik minimaal ${window.MIN_PW} tekens.`, true); return; }
