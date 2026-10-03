@@ -8,49 +8,64 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   (async () => {
     const tabs = (await chrome.tabs.query({})).filter((t) => t.url && ADMIN.test(t.url));
     if (!tabs.length) return reply({ error: 'Open je webshopbeheer (adviesdrogisterij.nl/App) in Chrome, log in en open Beheer orders.' });
-    let lastError = '';
+    // In alle tabbladen met het beheer en in alle frames daarbinnen zoeken (tabbladen in het beheer zijn vaak frames)
+    const found = [], seen = new Set(); let lists = 0, rows = 0, frames = 0, lastError = '';
     for (const tab of tabs) {
-      try {
-        const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'MAIN', func: lookupInExt, args: [msg.email, msg.orders] });
-        if (res?.result?.error) { lastError = res.result.error; continue; }
-        return reply(res.result);
-      } catch (e) { lastError = String(e?.message || e); }
+      let res = [];
+      try { res = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: 'MAIN', func: lookupInExt, args: [msg.email, msg.orders] }); }
+      catch (e) { lastError = String(e?.message || e); continue; }
+      for (const fr of res) {
+        const r = fr && fr.result; if (!r) continue;
+        if (r.noExt) continue;
+        frames++; lists += r.lists || 0; rows += r.rows || 0;
+        for (const o of r.orders || []) { const k = JSON.stringify(o); if (!seen.has(k)) { seen.add(k); found.push(o); } }
+      }
     }
-    reply({ error: lastError || 'Zoeken in het webshopbeheer mislukt.' });
+    if (found.length) return reply({ orders: found.slice(0, 5) });
+    if (!frames) return reply({ error: lastError || 'In het geopende beheer is geen bestellijst gevonden. Open Beheer orders en wacht tot de lijst geladen is.' });
+    reply({ orders: [], info: `doorzocht: ${lists} lijst${lists === 1 ? '' : 'en'} met samen ${rows} regels` });
   })();
   return true; // antwoord komt later
 });
 
-// Draait in het beheer (Ext JS 3.4): zoekt in de geladen lijsten naar het mailadres of ordernummer.
+// Draait in het beheer (Ext JS 3.4), in elk frame: zoekt in de geladen lijsten naar het mailadres of ordernummer.
 function lookupInExt(email, orders) {
   const Ext = window.Ext;
-  if (!Ext || !Ext.ComponentMgr) return { error: 'Het webshopbeheer is nog niet (volledig) geladen. Open Beheer orders en probeer het opnieuw.' };
+  if (!Ext || !Ext.ComponentMgr) return { noExt: true };
   const strip = (h) => String(h || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
   const fmt = (v) => v instanceof Date ? v.toLocaleString('nl-NL') : (v === null || v === undefined ? '' : String(v));
   const wantEmail = String(email || '').trim().toLowerCase();
   const wantOrders = new Set((orders || []).map((o) => String(o).trim()).filter(Boolean));
-  // Kolommen die de AI niet nodig heeft (staat al in de mail) of die gevoelig zijn
-  const skip = /e-?mail|telefoon|voornaam|achternaam|wachtwoord|password|sessie|session|\bip\b|iban|hash|token/i;
-  const results = [], seen = new Set();
+  // Velden die de AI niet nodig heeft (staat al in de mail) of die gevoelig/intern zijn
+  const skip = /e-?mail|telefoon|voornaam|achternaam|wachtwoord|password|sessie|session|\bip\b|iban|hash|token|^id$|_id$/i;
+  // Lijsten verzamelen: tabellen (met kolomnamen) en losse stores
+  const lists = new Map(); // store -> kolommen [{label, key}]
   Ext.ComponentMgr.all.each((c) => {
-    if (!c || !c.store || typeof c.getColumnModel !== 'function' || !c.store.each) return;
-    const cols = (c.getColumnModel().config || []).filter((col) => col && col.dataIndex && strip(col.header));
-    if (!cols.length) return;
-    c.store.each((r) => {
+    if (!c || !c.store || !c.store.each || typeof c.getColumnModel !== 'function') return;
+    const cols = (c.getColumnModel().config || []).filter((col) => col && col.dataIndex).map((col) => ({ label: strip(col.header) || col.dataIndex, key: col.dataIndex }));
+    if (cols.length) lists.set(c.store, cols);
+  });
+  const mgr = Ext.StoreMgr || (Ext.data && Ext.data.StoreManager);
+  if (mgr && mgr.each) mgr.each((st) => { if (st && st.each && !lists.has(st)) lists.set(st, null); });
+  const results = [], seen = new Set(); let rows = 0;
+  lists.forEach((cols, st) => {
+    st.each((r) => {
+      rows++;
       const d = r.data || {};
       const vals = Object.values(d).map((v) => fmt(v).trim());
       const hitEmail = wantEmail && vals.some((v) => v.toLowerCase() === wantEmail);
-      const hitOrder = wantOrders.size && vals.some((v) => wantOrders.has(v));
+      const hitOrder = wantOrders.size && vals.some((v) => wantOrders.has(v) || wantOrders.has(v.replace(/^#/, '')));
       if (!hitEmail && !hitOrder) return;
       const row = {};
-      for (const col of cols) {
-        const label = strip(col.header), val = fmt(d[col.dataIndex]).trim();
-        if (!val || skip.test(label) || skip.test(col.dataIndex)) continue;
-        row[label] = val.slice(0, 200);
+      const fields = cols || Object.keys(d).map((k) => ({ label: k, key: k }));
+      for (const f of fields) {
+        const val = fmt(d[f.key]).trim();
+        if (!val || skip.test(f.label) || skip.test(f.key) || typeof d[f.key] === 'object' && !(d[f.key] instanceof Date)) continue;
+        row[f.label] = val.slice(0, 200);
       }
       const key = JSON.stringify(row);
       if (Object.keys(row).length && !seen.has(key)) { seen.add(key); results.push(row); }
     });
   });
-  return { orders: results.slice(0, 5), searched: { email: !!wantEmail, orders: [...wantOrders] } };
+  return { orders: results.slice(0, 5), lists: lists.size, rows };
 }

@@ -448,7 +448,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.16.0';
+const APP_VERSION = '1.16.1';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1715,7 +1715,7 @@ async function findOrder(auto) {
   setStatus(st, 'Zoeken in je webshopbeheer…');
   const r = await askExtension(email, orders);
   if (r.error) { setStatus(st, r.error, true); return; }
-  if (!r.orders || !r.orders.length) { setStatus(st, 'Geen bestelling gevonden in de geopende lijst Beheer orders.'); return; }
+  if (!r.orders || !r.orders.length) { setStatus(st, `Geen bestelling gevonden${orders.length ? ' voor ' + orders.join(', ') : ''}${email ? (orders.length ? ' of ' : ' voor ') + email : ''} in je geopende beheer${r.info ? ' (' + r.info + ')' : ''}. Staat de bestelling in de geladen lijst Beheer orders?`); return; }
   const block = 'GEGEVENS UIT DE WEBSHOP (actueel; gebruik deze in het antwoord en verzin niets):\n' +
     r.orders.map((o, i) => `Bestelling ${i + 1}: ` + Object.entries(o).map(([k, v]) => `${k}: ${v}`).join('; ')).join('\n');
   const note = $('note');
