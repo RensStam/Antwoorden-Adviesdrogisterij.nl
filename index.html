@@ -459,7 +459,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.18.1';
+const APP_VERSION = '1.18.2';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1454,7 +1454,8 @@ function learnFromCopy() {
   if (settings.learn === false) return false;
   const email = $('email').value.trim(), reply = $('reply').value.trim();
   if (!email || !reply || /\[AANVULLEN/i.test(reply)) return false; // niet leren van onafgemaakte antwoorden
-  const noteNoShop = $('note').value.split('\n').filter(l => !/^Gegevens uit de webshop:/i.test(l)).join('\n').trim(); // bestelgegevens niet onthouden
+  // bestelgegevens niet onthouden: het blok uit de webshop (kopregel + samenvatting) weglaten
+  const noteNoShop = $('note').value.replace(/\n*— Info uit de webshop[^\n]*(\n[^\n]*)?/g, '').split('\n').filter(l => !/^Gegevens uit de webshop:/i.test(l)).join('\n').trim();
   const ex = scrubNames({ t: Date.now(), email: maskAlways(email), note: maskAlways(noteNoShop), reply: maskAlways(reply) });
   examples = examples.filter(e => e.email !== ex.email); // zelfde mail: nieuwste versie telt
   examples.unshift(ex); examples = examples.slice(0, MAX_EXAMPLES);
@@ -1763,6 +1764,7 @@ function orderSummary(o) {
   return parts.filter(Boolean).join(' ');
 }
 let foundOrders = [], foundRaw = [];
+const SHOP_HEAD = '— Info uit de webshop (automatisch toegevoegd door de app) —';
 // Veld uit de bestelling op label zoeken
 const pick = (o, re, not) => { const k = Object.keys(o).find(x => re.test(x.trim()) && !(not && not.test(x))); return k ? String(o[k]).trim() : ''; };
 const yesNo = v => /^(1|true|ja|yes)$/i.test(String(v)) ? 'ja' : (v === '' ? '' : 'nee');
@@ -1798,8 +1800,8 @@ function showOrders() {
 }
 $('orderBox').addEventListener('click', e => {
   const i = e.target.dataset.take; if (i === undefined) return;
-  const note = $('note'), t = 'Gegevens uit de webshop: ' + foundOrders[+i];
-  if (!note.value.includes(foundOrders[+i])) note.value = (note.value.trim() + '\n' + t).trim();
+  const note = $('note'), t = SHOP_HEAD + '\n' + foundOrders[+i];
+  if (!note.value.includes(foundOrders[+i])) note.value = (note.value.trim() ? note.value.trim() + '\n\n' : '') + t;
   e.target.textContent = '✓ Overgenomen'; e.target.disabled = true;
 });
 async function findOrder(auto) {
