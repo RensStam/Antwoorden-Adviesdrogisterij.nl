@@ -206,6 +206,13 @@ function address(name: string, addr: string) {
   return `${n} <${addr}>`;
 }
 const escHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+// Links in de tekst van de AI: [tekst](https://...) en losse https-adressen worden klikbaar (alleen https)
+const MD_LINK = /\[([^\]\n]{1,200})\]\((https:\/\/[^\s)]+)\)/g;
+const linkHtml = (escaped: string) => escaped
+  .replace(MD_LINK, '<a href="$2">$1</a>')
+  .replace(/(^|[\s(])(https:\/\/[^\s<]+[^\s<.,;:!?)])/g, '$1<a href="$2">$2</a>');
+const paraHtml = (t: string) => t.split(/\n{2,}/).map((p) => `<p style="margin:0 0 12px">${linkHtml(escHtml(p)).replace(/\n/g, '<br>')}</p>`).join('');
+const plainLinks = (t: string) => t.replace(MD_LINK, '$1: $2');
 
 // Handtekening (HTML uit Outlook): gevaarlijke onderdelen eruit, alleen plaatjes van internet (https)
 function cleanSignature(html: string) {
@@ -234,10 +241,10 @@ function buildReply(orig: Awaited<ReturnType<typeof readMessage>>, replyText: st
   const quoted = orig.text.slice(0, 10000);
   const sigText = (sig.text || '').replace(/\r/g, '').trim().slice(0, 5000);
   const sigHtml = cleanSignature(sig.html || '').trim();
-  const plain = `${reply}${sigText ? '\n\n' + sigText : ''}\n\n${intro}\n${quoted.split('\n').map((l) => '> ' + l).join('\n')}\n`.replace(/\n/g, '\r\n');
+  const plain = `${plainLinks(reply)}${sigText ? '\n\n' + sigText : ''}\n\n${intro}\n${quoted.split('\n').map((l) => '> ' + l).join('\n')}\n`.replace(/\n/g, '\r\n');
   const html = '<html><body>' +
     '<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">' +
-    reply.split(/\n{2,}/).map((p) => `<p style="margin:0 0 12px">${escHtml(p).replace(/\n/g, '<br>')}</p>`).join('') +
+    paraHtml(reply) +
     '</div>' +
     (sigHtml ? `<div>${sigHtml}</div>` : sigText ? `<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">${escHtml(sigText).replace(/\n/g, '<br>')}</div>` : '') +
     '<br>' +
@@ -270,9 +277,9 @@ function buildNew(to: string, toName: string, subject: string, text: string, sig
   const domain = (fromAddr.split('@')[1] || 'adviesdrogisterij.nl').replace(/[^a-z0-9.-]/gi, '');
   const body = text.replace(/\r/g, '').trim();
   const sigText = (sig.text || '').replace(/\r/g, '').trim().slice(0, 5000), sigHtml = cleanSignature(sig.html || '').trim();
-  const plain = `${body}${sigText ? '\n\n' + sigText : ''}\n`.replace(/\n/g, '\r\n');
+  const plain = `${plainLinks(body)}${sigText ? '\n\n' + sigText : ''}\n`.replace(/\n/g, '\r\n');
   const html = '<html><body><div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">' +
-    body.split(/\n{2,}/).map((p) => `<p style="margin:0 0 12px">${escHtml(p).replace(/\n/g, '<br>')}</p>`).join('') + '</div>' +
+    paraHtml(body) + '</div>' +
     (sigHtml ? `<div>${sigHtml}</div>` : sigText ? `<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">${escHtml(sigText).replace(/\n/g, '<br>')}</div>` : '') + '</body></html>';
   const boundary = '=_ads_' + crypto.randomUUID().replace(/-/g, '');
   return [

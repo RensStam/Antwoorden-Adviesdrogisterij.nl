@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Antwoorden Adviesdrogisterij.nl – bestellingen opzoeken",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Zoekt voor de app 'Antwoorden Adviesdrogisterij.nl' de bestelling van een klant op in het geopende webshopbeheer. Werkt alleen als het beheer open staat en je bent ingelogd; slaat niets op.",
   "permissions": ["scripting"],
   "host_permissions": ["https://www.adviesdrogisterij.nl/*", "https://adviesdrogisterij.nl/*"],

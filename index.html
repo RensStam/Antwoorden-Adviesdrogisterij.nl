@@ -64,6 +64,7 @@ textarea { resize: vertical; }
 textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 #email { min-height: 460px; }
 #note { min-height: 110px; }
+#note.big { min-height: 460px; line-height: 1.5; }
 #reply { min-height: 460px; }
 #instructions { min-height: 420px; font-size: 14px; }
 .sigbox { min-height: 100px; max-height: 320px; overflow: auto; background: #fff; color: #1c1e1f; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: 11pt Calibri, Arial, sans-serif; }
@@ -480,7 +481,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.20.0';
+const APP_VERSION = '1.21.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1335,6 +1336,8 @@ function buildSystem(knowledge, ex = []) {
     : instructions;
   return `${instr}
 
+LINKS: zet een link in de tekst altijd als [omschrijving](https://...) en volg daarbij de linkregels uit de instructies (bijv. 👉 ervoor). De app maakt er in het concept een klikbare link van. Staat er een track & trace-link in de notitie, neem die dan op deze manier op.
+
 KENNISBANK (sjablonen en beleid; pas het juiste sjabloon toe als dat er is)
 ${knowledge || '(De kennisbank is leeg. Verzin geen beleid; gebruik invulplekken [AANVULLEN: …] waar nodig.)'}
 ${lessons.length ? `
@@ -1432,8 +1435,17 @@ $('refineBtn').addEventListener('click', () => {
 $('refine').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('refineBtn').click(); } });
 $('quickChips').addEventListener('click', e => { if (e.target.dataset.r) refine(e.target.dataset.r); });
 $('stopBtn').addEventListener('click', () => controller && controller.abort());
+// Links als [tekst](https://...) worden bij het plakken in Outlook klikbaar; als platte tekst "tekst: adres"
+const MD_LINK = /\[([^\]\n]{1,200})\]\((https:\/\/[^\s)]+)\)/g;
+async function copyRich(text) {
+  const plain = text.replace(MD_LINK, '$1: $2');
+  if (!window.ClipboardItem || !/\]\(https:\/\//.test(text)) return navigator.clipboard.writeText(plain);
+  const html = '<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">' + text.split(/\n{2,}/).filter(x => x.trim())
+    .map(p => `<p style="margin:0 0 12px">${esc(p).replace(MD_LINK, '<a href="$2">$1</a>').replace(/\n/g, '<br>')}</p>`).join('') + '</div>';
+  await navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([plain], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]);
+}
 $('copyBtn').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText($('reply').value); }
+  try { await copyRich($('reply').value); }
   catch { $('reply').select(); document.execCommand('copy'); }
   const n = renderChecks();
   const learned = learnFromCopy();
@@ -1568,7 +1580,7 @@ function checkReply(text, email) {
   const bad = r.words.filter(w => hasWord(text, w));
   if (bad.length) issues.push(`Verboden woord${bad.length > 1 ? 'en' : ''}: <b>${bad.map(esc).join(', ')}</b>`);
   if (r.dashes && (/[–—]/.test(text) || / - /.test(text) || /^\s*- /m.test(text))) issues.push('Bevat gedachtestreepjes of opsommingsstreepjes (-, –, —)');
-  const ph = [...new Set(text.match(/\[[^\]\n]{2,60}\]/g) || [])];
+  const ph = [...new Set(text.match(/\[[^\]\n]{2,60}\](?!\()/g) || [])];
   if (ph.length) issues.push(`Nog invullen: ${ph.map(esc).join(', ')}`);
   const esc1 = r.escalate.filter(w => hasWord(email, w));
   if (esc1.length) notes.push(`<b>Escalatie?</b> De klant noemt: ${esc1.map(esc).join(', ')}.${r.escalateHow ? ' Volgens de handleiding: ' + esc(r.escalateHow) + '.' : ''}`);
@@ -1828,7 +1840,7 @@ function orderSummary(o) {
   const plaats = get(/afleverplaats/i), land = get(/afleverland/i), factuur = get(/factuurnummer/i), methode = get(/verzendmethode|verzendwijze/i);
   const parts = [
     `Bestelling ${nr || '?'}${datum ? ' van ' + datum : ''}: ${status || 'status onbekend'}${tstatus && tstatus !== status ? ' (betaling: ' + tstatus + ')' : ''}${betaal ? ' via ' + betaal : ''}${bedrag ? ', ' + euro(bedrag) : ''}${vk && vk !== '0.00' ? ' incl. ' + euro(vk) + ' verzendkosten' : ''}.`,
-    tt ? `Track & trace: ${tt}.` : 'Nog geen track & trace.',
+    tt ? `Track & trace: ${tt}. Track & trace-link: ${ttLink(tt, pick(o, /^afleverland$/i) || land, pick(o, /afleverpostcode/i))}` : 'Nog geen track & trace.',
     methode ? `Verzendmethode: ${methode}.` : '',
     plaats || land ? `Bezorging: ${[plaats, land].filter(Boolean).join(', ')}.` : '',
     factuur ? `Factuurnummer: ${factuur}.` : '',
@@ -1881,7 +1893,8 @@ function showOrders() {
   box.innerHTML = '<b>Gevonden in de Webshop</b>' + foundRaw.map(orderView).join('');
 }
 $('orderBox').addEventListener('click', e => {
-  if (e.target.dataset.new !== undefined) { startNewMail(+e.target.dataset.new); return; }
+  const nb = e.target.closest('[data-new]');
+  if (nb) { startNewMail(+nb.dataset.new); return; }
   const i = e.target.dataset.take; if (i === undefined) return;
   const note = $('note'), t = SHOP_HEAD + '\n' + foundOrders[+i];
   if (!note.value.includes(foundOrders[+i])) note.value = (note.value.trim() ? note.value.trim() + '\n\n' : '') + t;
@@ -1889,7 +1902,7 @@ $('orderBox').addEventListener('click', e => {
 });
 // ---------- Nieuwe mail aan een klant (geen antwoord), vanuit een gevonden bestelling ----------
 function startNewMail(i) {
-  const o = foundRaw[i]; if (!o || !o._email) return;
+  const o = foundRaw[i]; if (!o || !o._email) { setStatus($('orderStatus'), 'Bij deze bestelling is geen e-mailadres gevonden.', true); return; }
   const name = [pick(o, /voornaam/i), pick(o, /achternaam/i)].filter(Boolean).join(' '), nr = pick(o, /^ordernummer$/i);
   newMail = { to: o._email, name, summary: foundOrders[i] };
   currentMsg = null; convo = null; $('reply').value = ''; $('checks').hidden = true; hideMailView(); $('email').value = '';
@@ -1903,15 +1916,16 @@ function startNewMail(i) {
   $('noteLabel').textContent = 'Wat wil je de klant laten weten?';
   $('note').placeholder = 'Bijv.: een artikel is niet leverbaar; we leveren de rest nu en storten € 8 terug.';
   const t = SHOP_HEAD + '\n' + newMail.summary;
-  $('note').value = t; renderMail();
-  $('note').focus(); $('note').setSelectionRange(0, 0);
+  $('note').classList.add('big'); $('note').value = '\n\n\n' + t; renderMail();
+  $('mailCardTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('note').focus({ preventScroll: true }); $('note').setSelectionRange(0, 0);
   setStatus($('genStatus'), 'Typ bovenaan in het notitieveld wat je de klant wilt laten weten en klik op "Antwoord maken".');
 }
 function endNewMail() {
   if (!newMail) return;
   newMail = null; $('newMailBox').hidden = true; $('newMailBox').innerHTML = ''; $('email').hidden = false; $('emailLabel').hidden = false;
   $('mailCardTitle').textContent = 'Mail van de klant';
-  $('noteLabel').textContent = 'Jouw notitie voor het antwoord (optioneel)';
+  $('noteLabel').textContent = 'Jouw notitie voor het antwoord (optioneel)'; $('note').classList.remove('big');
   $('note').placeholder = 'Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123.';
   renderMail();
 }
@@ -1924,6 +1938,9 @@ async function findOrder(auto, query) {
   setStatus(st, 'Zoeken in je webshopbeheer…'); foundOrders = []; foundRaw = []; showOrders();
   const r = await askExtension(email, orders);
   if (r.error) { setStatus(st, r.error, true); return; }
+  if ((!r.orders || !r.orders.length) && (r.rows === 0 || /met samen 0 regels/.test(r.info || ''))) {
+    setStatus(st, 'MOGELIJK UITGELOGD: het webshopbeheer gaf geen enkele bestelling terug. Log opnieuw in op adviesdrogisterij.nl/App, open Beheer orders en klik daarna opnieuw op Zoeken.', true); return;
+  }
   if (!r.orders || !r.orders.length) { setStatus(st, `Geen bestelling gevonden${orders.length ? ' voor ' + orders.join(', ') : ''}${email ? (orders.length ? ' of ' : ' voor ') + email : ''} in je geopende beheer${r.info ? ' (' + r.info + ')' : ''}. Staat de bestelling in de geladen lijst Beheer orders?`); return; }
   foundRaw = r.orders; foundOrders = r.orders.map(orderSummary); showOrders();
   setStatus(st, `${r.orders.length} bestelling${r.orders.length === 1 ? '' : 'en'} gevonden. Klik op "Overnemen in notitie" om het aan de AI mee te geven.`);

@@ -23,7 +23,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     }
     if (found.length) return reply({ orders: found.slice(0, 5) });
     if (!frames) return reply({ error: lastError || 'In het geopende beheer is geen bestellijst gevonden. Open Beheer orders en wacht tot de lijst geladen is.' });
-    reply({ orders: [], info: `doorzocht: ${lists} lijst${lists === 1 ? '' : 'en'} met samen ${rows} regels` });
+    reply({ orders: [], lists, rows, info: `doorzocht: ${lists} lijst${lists === 1 ? '' : 'en'} met samen ${rows} regels` });
   })();
   return true; // antwoord komt later
 });
