@@ -459,7 +459,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.18.0';
+const APP_VERSION = '1.18.1';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1794,7 +1794,7 @@ function showOrders() {
   const box = $('orderBox');
   box.hidden = !foundRaw.length;
   if (!foundRaw.length) return;
-  box.innerHTML = '<b>Gevonden in je webshop</b>' + foundRaw.map(orderView).join('');
+  box.innerHTML = '<b>Gevonden in de Webshop</b>' + foundRaw.map(orderView).join('');
 }
 $('orderBox').addEventListener('click', e => {
   const i = e.target.dataset.take; if (i === undefined) return;
