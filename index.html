@@ -480,7 +480,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.21.3';
+const APP_VERSION = '1.21.4';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1920,21 +1920,27 @@ function startNewMail(i) {
   $('note').focus({ preventScroll: true }); $('note').setSelectionRange(0, 0);
   setStatus($('genStatus'), 'Typ bovenaan in het notitieveld wat je de klant wilt laten weten en klik op "Antwoord maken".');
 }
-// Bij een nieuwe mail loopt het notitieveld door tot de onderkant van 'Laat het aanpassen' (naast elkaar)
+// Het notitieveld loopt door tot de onderkant van 'Laat het aanpassen' (als de blokken naast elkaar staan)
 function fitNote() {
   const n = $('note'), f = $('refine');
-  if (!newMail) return;
-  n.style.height = '';
   const a = n.getBoundingClientRect(), b = f.getBoundingClientRect();
-  if (b.left < a.right || b.bottom <= a.top) return; // onder elkaar (smal scherm): standaardhoogte
-  n.style.height = Math.max(460, Math.round(b.bottom - a.top)) + 'px';
+  const min = newMail ? 460 : 110;
+  if (!b.height || b.left < a.right || b.bottom <= a.top) { if (n.style.height) n.style.height = ''; return; } // onder elkaar (smal scherm)
+  const h = Math.max(min, Math.round(b.bottom - a.top));
+  if (Math.abs(n.offsetHeight - h) > 1) n.style.height = h + 'px';
 }
-window.addEventListener('resize', () => { if (newMail) fitNote(); });
+let fitQueued = false;
+const queueFit = () => { if (fitQueued) return; fitQueued = true; requestAnimationFrame(() => { fitQueued = false; fitNote(); }); };
+window.addEventListener('resize', queueFit);
+if (window.ResizeObserver) { // ook binnen de blokken, want de kaarten zelf rekken mee in het raster
+  const ro = new ResizeObserver(queueFit);
+  for (const c of [$('reply').closest('.card'), $('mailCardTitle').closest('.card')]) { ro.observe(c); [...c.children].forEach(x => x !== $('note') && ro.observe(x)); }
+}
 function endNewMail() {
   if (!newMail) return;
   newMail = null; $('newMailBox').hidden = true; $('newMailBox').innerHTML = ''; $('email').hidden = false;
   $('mailCardTitle').textContent = 'Mail van de klant';
-  $('noteLabel').textContent = 'Jouw notitie voor het antwoord (optioneel)'; $('note').classList.remove('big'); $('note').style.height = '';
+  $('noteLabel').textContent = 'Jouw notitie voor het antwoord (optioneel)'; $('note').classList.remove('big'); $('note').style.height = ''; queueFit();
   $('note').placeholder = 'Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123.';
   renderMail();
 }
