@@ -108,6 +108,10 @@ pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); bord
 .mail:hover, .mail.sel { background: var(--accent-soft); }
 .mail .from, .mail .subj, .mail .prev { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mail.unread .from, .mail.unread .subj { font-weight: 800; }
+.mail.done { opacity: .6; }
+.mail .badge { font-size: 11px; font-weight: 700; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 8px; margin-left: 6px; white-space: nowrap; }
+.mail .mk { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 6px; padding: 0 7px; margin-left: 8px; font: inherit; font-size: 12px; cursor: pointer; }
+.mail .mk:hover { border-color: var(--accent); color: var(--accent); }
 .mail .when { font-size: 12px; color: var(--muted); }
 .mail .prev { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
 .inboxHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -176,12 +180,13 @@ body.locked > header, body.locked > main { display: none; }
       <div class="inboxHead">
         <h2>Inbox <span class="note" id="inboxWho" style="font-weight:400"></span></h2>
         <div class="actions" style="margin:0;align-items:center">
+          <label style="display:flex;gap:6px;align-items:center;margin:0;cursor:pointer"><input type="checkbox" id="todoOnly" style="width:auto;margin:0"> Alleen nog te doen</label>
           <label style="display:flex;gap:6px;align-items:center;margin:0;cursor:pointer"><input type="checkbox" id="unreadOnly" style="width:auto;margin:0"> Alleen ongelezen</label>
           <button class="btn" id="inboxRefresh">Vernieuwen</button>
         </div>
       </div>
       <div class="inbox" id="inboxList"></div>
-      <div class="status" id="inboxStatus"></div>
+      <div class="actions" style="margin-top:8px;align-items:center"><div class="status" id="inboxStatus" style="margin:0;flex:1"></div><button class="btn" id="markAll" type="button" style="padding:5px 10px;font-size:13px">Lijst als behandeld markeren</button></div>
     </div>
     <div class="grid">
       <div class="card">
@@ -425,7 +430,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.12.2';
+const APP_VERSION = '1.13.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1371,6 +1376,7 @@ $('copyBtn').addEventListener('click', async () => {
   catch { $('reply').select(); document.execCommand('copy'); }
   const n = renderChecks();
   const learned = learnFromCopy();
+  if (typeof currentMsg !== 'undefined' && currentMsg && $('reply').value.trim() && !handled[currentMsg.uid]) markHandled(currentMsg.uid, 'gekopieerd');
   setStatus($('genStatus'), (n ? `Gekopieerd, maar let op: nog ${n === 1 ? '1 controlepunt' : n + ' controlepunten'}.` : 'Gekopieerd naar klembord.') + (learned ? ' Onthouden als voorbeeld.' : ''), !!n);
 });
 
@@ -1562,6 +1568,7 @@ let currentMsg = null, inboxMsgs = [], inboxLoaded = 0;
 function renderMail() {
   $('mailEnabled').checked = !!mailCfg().enabled;
   $('unreadOnly').checked = !!mailCfg().unreadOnly;
+  $('todoOnly').checked = !!mailCfg().todoOnly;
   $('mailEnabled').disabled = $('mailTest').disabled = window.vaultMode !== 'server';
   $('mailServerOnly').hidden = window.vaultMode === 'server';
   $('inboxCard').hidden = !mailOn();
@@ -1580,27 +1587,56 @@ $('mailTest').addEventListener('click', async () => {
   } catch (e) { setStatus(st, 'Mislukt: ' + e.message, true); }
 });
 const fromLabel = f => (f && (f.name || f.address)) || '(onbekend)';
+// Bijhouden welke mails al behandeld zijn (gedeeld tussen alle computers): uid -> { t, s }
+let handled = store.get('handled', {});
+const HANDLED_LABEL = { concept: '✓ concept gemaakt', gekopieerd: '✓ antwoord gekopieerd', behandeld: '✓ behandeld' };
+function markHandled(uid, status) {
+  if (status) handled[uid] = { t: Date.now(), s: status }; else delete handled[uid];
+  const keep = Date.now() - 180 * 864e5; // na een half jaar opruimen
+  for (const k in handled) if (handled[k].t < keep) delete handled[k];
+  store.set('handled', handled); renderInbox();
+}
+function renderInbox() {
+  if (!mailOn()) return;
+  const todo = $('todoOnly').checked;
+  const list = inboxMsgs.map((m, i) => ({ m, i })).filter(x => !todo || !handled[x.m.uid]);
+  $('inboxList').innerHTML = list.length ? list.map(({ m, i }) => {
+    const h = handled[m.uid];
+    return `
+      <div class="mail${m.seen ? '' : ' unread'}${h ? ' done' : ''}${currentMsg && currentMsg.uid === m.uid ? ' sel' : ''}" data-m="${i}" title="${esc(m.from.address || '')}">
+        <div class="from">${esc(fromLabel(m.from))} · <span class="subj">${esc(m.subject || '(geen onderwerp)')}</span>${h ? `<span class="badge" title="${new Date(h.t).toLocaleString('nl-NL')}">${HANDLED_LABEL[h.s] || '✓'}</span>` : ''}</div>
+        <div class="when">${m.date ? new Date(m.date).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}<button class="mk" data-mk="${m.uid}" type="button" title="${h ? 'Markering weghalen' : 'Markeer als behandeld'}">${h ? '↺' : '✓'}</button></div>
+      </div>`;
+  }).join('') : `<p class="empty" style="padding:10px 12px;margin:0">${todo && inboxMsgs.length ? 'Alles in deze lijst is behandeld. 🎉' : `Geen ${$('unreadOnly').checked ? 'ongelezen ' : ''}mails.`}</p>`;
+  const open = inboxMsgs.filter(m => !handled[m.uid]).length;
+  setStatus($('inboxStatus'), `${inboxMsgs.length} mail${inboxMsgs.length === 1 ? '' : 's'}, waarvan ${open} nog te doen. Klik op een mail om hem in te laden.`);
+}
 async function loadInbox() {
   if (!mailOn()) return;
   const st = $('inboxStatus');
   $('inboxWho').textContent = mailCfg().user ? '· ' + mailCfg().user : '';
   setStatus(st, 'Mails ophalen…'); inboxLoaded = Date.now();
   try {
-    const { messages } = await window.mailApi('list', { unreadOnly: $('unreadOnly').checked, limit: 40 });
+    const { messages } = await window.mailApi('list', { unreadOnly: $('unreadOnly').checked, limit: $('todoOnly').checked ? 100 : 40 });
     inboxMsgs = messages || [];
-    $('inboxList').innerHTML = inboxMsgs.length ? inboxMsgs.map((m, i) => `
-      <div class="mail${m.seen ? '' : ' unread'}${currentMsg && currentMsg.uid === m.uid ? ' sel' : ''}" data-m="${i}" title="${esc(m.from.address || '')}">
-        <div class="from">${esc(fromLabel(m.from))} · <span class="subj">${esc(m.subject || '(geen onderwerp)')}</span></div>
-        <div class="when">${m.date ? new Date(m.date).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}</div>
-      </div>`).join('') : `<p class="empty" style="padding:10px 12px;margin:0">Geen ${$('unreadOnly').checked ? 'ongelezen ' : ''}mails.</p>`;
-    setStatus(st, `${inboxMsgs.length} mail${inboxMsgs.length === 1 ? '' : 's'}. Klik op een mail om hem in te laden.`);
+    renderInbox();
   } catch (e) { setStatus(st, e.message, true); }
 }
+$('todoOnly').addEventListener('change', () => { mailCfg().todoOnly = $('todoOnly').checked; saveSettings(); loadInbox(); });
+$('markAll').addEventListener('click', () => {
+  const open = inboxMsgs.filter(m => !handled[m.uid]);
+  if (!open.length) return;
+  if (!confirm(`${open.length} mail${open.length === 1 ? '' : 's'} in deze lijst als behandeld markeren?`)) return;
+  open.forEach(m => { handled[m.uid] = { t: Date.now(), s: 'behandeld' }; });
+  markHandled(open[0].uid, 'behandeld');
+});
 $('inboxRefresh').addEventListener('click', loadInbox);
 $('unreadOnly').addEventListener('change', () => { mailCfg().unreadOnly = $('unreadOnly').checked; saveSettings(); loadInbox(); });
 // Terug in het venster en de lijst is ouder dan 3 minuten: vanzelf vernieuwen
 window.addEventListener('focus', () => { if (mailOn() && Date.now() - inboxLoaded > 3 * 60000) loadInbox(); });
 $('inboxList').addEventListener('click', async e => {
+  const mk = e.target.closest('[data-mk]');
+  if (mk) { e.stopPropagation(); const uid = +mk.dataset.mk; markHandled(uid, handled[uid] ? null : 'behandeld'); return; }
   const row = e.target.closest('[data-m]'); if (!row) return;
   const m = inboxMsgs[+row.dataset.m], st = $('inboxStatus');
   setStatus(st, 'Mail openen…');
@@ -1625,6 +1661,7 @@ $('draftBtn').addEventListener('click', async () => {
   try {
     const r = await window.mailApi('draft', { uid: currentMsg.uid, text, signatureHtml: mailSig, signatureText: sigToText(mailSig) });
     const learned = learnFromCopy();
+    markHandled(currentMsg.uid, 'concept');
     setStatus(st, `Concept staat klaar in de map "${r.folder}" (aan ${r.to}). Open je mailprogramma om het te verzenden.` + (learned ? ' Onthouden als voorbeeld.' : ''));
   } catch (e) { setStatus(st, 'Concept opslaan mislukt: ' + e.message, true); }
 });
@@ -1711,6 +1748,7 @@ window.onVaultReload = () => {
   instructions = store.get('instructions', DEFAULT_INSTRUCTIONS); signature = store.get('signature', DEFAULT_SIGNATURE);
   kb = store.get('kb', []); history = store.get('history', []);
   examples = store.get('examples', []); lessons = store.get('lessons', []); renderLearned(); renderMail();
+  handled = store.get('handled', {}); renderInbox();
   if (document.activeElement !== $('instructions')) $('instructions').value = instructions;
   if (document.activeElement !== $('signature')) $('signature').value = signature;
   mailSig = store.get('mailSig', ''); if (document.activeElement !== $('mailSig')) $('mailSig').innerHTML = cleanSig(mailSig).html;
