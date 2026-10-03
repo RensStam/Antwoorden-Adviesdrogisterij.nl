@@ -100,6 +100,9 @@ button.btn:disabled { opacity: .55; cursor: default; }
 details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; }
 .empty { color: var(--muted); font-size: 14px; }
+.orderbox { margin-top: 12px; border: 1px solid var(--line); border-left: 4px solid var(--brand-blue); border-radius: 8px; padding: 10px 12px; background: var(--field); font-size: 14px; }
+.orderbox .ord + .ord { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.orderbox .actions { margin-top: 8px; }
 .checks { margin-top: 12px; border-radius: 8px; padding: 10px 12px; background: var(--warn-soft); color: var(--warn); font-size: 14px; }
 .checks.ok { background: var(--accent-soft); color: var(--accent); }
 .checks ul { margin: 4px 0 0; padding-left: 18px; }
@@ -197,6 +200,7 @@ body.locked > header, body.locked > main { display: none; }
         <h2>Mail van de klant</h2>
         <label for="email">Plak hier de e-mail (inclusief eerdere berichten als dat helpt)</label>
         <textarea id="email" placeholder="Beste Adviesdrogisterij, ik heb vorige week besteld maar…"></textarea>
+        <div class="orderbox" id="orderBox" hidden></div>
         <label for="note">Jouw notitie voor het antwoord (optioneel)</label>
         <textarea id="note" placeholder="Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123."></textarea>
         <div class="actions" id="orderWrap" hidden style="margin-top:6px;align-items:center">
@@ -448,7 +452,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.16.1';
+const APP_VERSION = '1.17.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1443,7 +1447,7 @@ function learnFromCopy() {
   if (settings.learn === false) return false;
   const email = $('email').value.trim(), reply = $('reply').value.trim();
   if (!email || !reply || /\[AANVULLEN/i.test(reply)) return false; // niet leren van onafgemaakte antwoorden
-  const noteNoShop = $('note').value.replace(/GEGEVENS UIT DE WEBSHOP[\s\S]*$/, '').trim(); // bestelgegevens niet onthouden
+  const noteNoShop = $('note').value.split('\n').filter(l => !/^Gegevens uit de webshop:/i.test(l)).join('\n').trim(); // bestelgegevens niet onthouden
   const ex = scrubNames({ t: Date.now(), email: maskAlways(email), note: maskAlways(noteNoShop), reply: maskAlways(reply) });
   examples = examples.filter(e => e.email !== ex.email); // zelfde mail: nieuwste versie telt
   examples.unshift(ex); examples = examples.slice(0, MAX_EXAMPLES);
@@ -1551,7 +1555,7 @@ $('checks').addEventListener('click', e => {
   refine(`Verbeter het antwoord volgens de huisregels: ${fix.join('; ')}. Verwijder verboden woorden en herschrijf zinnen zonder streepjes (-, –, —). Laat de rest van de inhoud gelijk.`);
 });
 $('clearBtn').addEventListener('click', () => {
-  $('email').value = $('note').value = $('reply').value = ''; convo = null; currentMsg = null;
+  $('email').value = $('note').value = $('reply').value = ''; convo = null; currentMsg = null; foundOrders = []; showOrders();
   showContext(null); $('checks').hidden = true; setStatus($('genStatus'), ''); renderMail();
   document.querySelectorAll('.mail.sel').forEach(x => x.classList.remove('sel'));
 });
@@ -1708,19 +1712,70 @@ function mailFacts() {
   const orders = [...new Set(text.match(/\b\d{6}\b/g) || [])].slice(0, 5); // ordernummers zijn 6 cijfers
   return { email, orders };
 }
+// Alleen de velden die nodig zijn voor een antwoord (scheelt tokens en geeft geen onnodige persoonsgegevens door)
+const ORDER_FIELDS = [
+  [/^ordernummer$/i], [/^orderdatum$/i], [/^status$/i], [/track/i], [/verzendmethode|verzendwijze/i], [/verzonden op|verstuurd op|verzenddatum/i],
+  [/^betaalmethode$/i], [/^transactie status$/i], [/bedrag incl|^bedrag$|^totaal/i], [/^verzendkosten$/i], [/^factuurnummer$/i],
+  [/gecrediteerd/i, 'bool'], [/avondbezorging/i, 'bool'], [/retour/i], [/^afleverplaats$/i], [/^afleverland$/i],
+];
+const STATUS_NL = { payed: 'betaald', paid: 'betaald', open: 'open (nog niet betaald)', pending: 'in behandeling', shipped: 'verzonden', sent: 'verzonden', cancelled: 'geannuleerd', canceled: 'geannuleerd', expired: 'verlopen', failed: 'mislukt', refunded: 'terugbetaald' };
+function slimOrder(o) {
+  const out = [];
+  for (const [re, kind] of ORDER_FIELDS) {
+    const k = Object.keys(o).find(x => re.test(x.trim()));
+    if (!k) continue;
+    let v = String(o[k]).trim();
+    if (kind === 'bool') { if (!/^(1|true|ja|yes)$/i.test(v)) continue; v = 'ja'; }
+    if (!v || v === '0' && !/kosten/i.test(k)) continue;
+    v = v.replace(/, 00:00:00$/, '');
+    if (/status/i.test(k)) v = STATUS_NL[v.toLowerCase()] || v;
+    if (!out.some(([kk]) => kk === k)) out.push([k, v]);
+  }
+  return out.length ? out : Object.entries(o).slice(0, 12); // onbekende lijst: dan beperkt alles
+}
+// Leesbare samenvatting van een bestelling (door de app zelf gemaakt, zonder AI: direct en gratis)
+function orderSummary(o) {
+  const f = Object.fromEntries(slimOrder(o));
+  const get = re => { const k = Object.keys(f).find(x => re.test(x)); return k ? f[k] : ''; };
+  const euro = v => v ? '€ ' + String(v).replace('.', ',') : '';
+  const nr = get(/ordernummer/i), datum = get(/orderdatum/i), status = get(/^status$/i), tstatus = get(/transactie status/i);
+  const tt = get(/track/i), betaal = get(/betaalmethode/i), bedrag = get(/bedrag incl|^bedrag$|^totaal/i), vk = get(/verzendkosten/i);
+  const plaats = get(/afleverplaats/i), land = get(/afleverland/i), factuur = get(/factuurnummer/i), methode = get(/verzendmethode|verzendwijze/i);
+  const parts = [
+    `Bestelling ${nr || '?'}${datum ? ' van ' + datum : ''}: ${status || 'status onbekend'}${tstatus && tstatus !== status ? ' (betaling: ' + tstatus + ')' : ''}${betaal ? ' via ' + betaal : ''}${bedrag ? ', ' + euro(bedrag) : ''}${vk && vk !== '0.00' ? ' incl. ' + euro(vk) + ' verzendkosten' : ''}.`,
+    tt ? `Track & trace: ${tt}.` : 'Nog geen track & trace.',
+    methode ? `Verzendmethode: ${methode}.` : '',
+    plaats || land ? `Bezorging: ${[plaats, land].filter(Boolean).join(', ')}.` : '',
+    factuur ? `Factuurnummer: ${factuur}.` : '',
+    get(/gecrediteerd/i) ? 'Deze bestelling is gecrediteerd.' : '',
+    get(/avondbezorging/i) ? 'Avondbezorging.' : '',
+  ];
+  return parts.filter(Boolean).join(' ');
+}
+let foundOrders = [];
+function showOrders() {
+  const box = $('orderBox');
+  box.hidden = !foundOrders.length;
+  if (!foundOrders.length) return;
+  box.innerHTML = '<b>Gevonden in je webshop</b>' + foundOrders.map((t, i) => `
+    <div class="ord">${esc(t)} <button class="btn" type="button" data-take="${i}" style="padding:3px 10px;font-size:13px;margin-left:4px">Overnemen in notitie</button></div>`).join('');
+}
+$('orderBox').addEventListener('click', e => {
+  const i = e.target.dataset.take; if (i === undefined) return;
+  const note = $('note'), t = 'Gegevens uit de webshop: ' + foundOrders[+i];
+  if (!note.value.includes(foundOrders[+i])) note.value = (note.value.trim() + '\n' + t).trim();
+  e.target.textContent = '✓ Overgenomen'; e.target.disabled = true;
+});
 async function findOrder(auto) {
   if (!hasBridge()) return;
   const st = $('orderStatus'), { email, orders } = mailFacts();
   if (!email && !orders.length) { if (!auto) setStatus(st, 'Geen mailadres of ordernummer gevonden in de mail.', true); return; }
-  setStatus(st, 'Zoeken in je webshopbeheer…');
+  setStatus(st, 'Zoeken in je webshopbeheer…'); foundOrders = []; showOrders();
   const r = await askExtension(email, orders);
   if (r.error) { setStatus(st, r.error, true); return; }
   if (!r.orders || !r.orders.length) { setStatus(st, `Geen bestelling gevonden${orders.length ? ' voor ' + orders.join(', ') : ''}${email ? (orders.length ? ' of ' : ' voor ') + email : ''} in je geopende beheer${r.info ? ' (' + r.info + ')' : ''}. Staat de bestelling in de geladen lijst Beheer orders?`); return; }
-  const block = 'GEGEVENS UIT DE WEBSHOP (actueel; gebruik deze in het antwoord en verzin niets):\n' +
-    r.orders.map((o, i) => `Bestelling ${i + 1}: ` + Object.entries(o).map(([k, v]) => `${k}: ${v}`).join('; ')).join('\n');
-  const note = $('note');
-  note.value = (note.value.replace(/GEGEVENS UIT DE WEBSHOP[\s\S]*$/, '').trim() + '\n\n' + block).trim();
-  setStatus(st, `${r.orders.length} bestelling${r.orders.length === 1 ? '' : 'en'} gevonden en in de notitie gezet.`);
+  foundOrders = r.orders.map(orderSummary); showOrders();
+  setStatus(st, `${r.orders.length} bestelling${r.orders.length === 1 ? '' : 'en'} gevonden. Klik op "Overnemen in notitie" om het aan de AI mee te geven.`);
 }
 $('orderBtn').addEventListener('click', () => findOrder(false));
 
