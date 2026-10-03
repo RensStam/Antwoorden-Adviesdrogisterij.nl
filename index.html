@@ -481,7 +481,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.21.0';
+const APP_VERSION = '1.21.1';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1939,7 +1939,7 @@ async function findOrder(auto, query) {
   const r = await askExtension(email, orders);
   if (r.error) { setStatus(st, r.error, true); return; }
   if ((!r.orders || !r.orders.length) && (r.rows === 0 || /met samen 0 regels/.test(r.info || ''))) {
-    setStatus(st, 'MOGELIJK UITGELOGD: het webshopbeheer gaf geen enkele bestelling terug. Log opnieuw in op adviesdrogisterij.nl/App, open Beheer orders en klik daarna opnieuw op Zoeken.', true); return;
+    setStatus(st, 'MOGELIJK UITGELOGD: het webshopbeheer gaf geen enkele bestelling terug. Log opnieuw in op adviesdrogisterij.nl/App.', true); return;
   }
   if (!r.orders || !r.orders.length) { setStatus(st, `Geen bestelling gevonden${orders.length ? ' voor ' + orders.join(', ') : ''}${email ? (orders.length ? ' of ' : ' voor ') + email : ''} in je geopende beheer${r.info ? ' (' + r.info + ')' : ''}. Staat de bestelling in de geladen lijst Beheer orders?`); return; }
   foundRaw = r.orders; foundOrders = r.orders.map(orderSummary); showOrders();
