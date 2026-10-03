@@ -68,7 +68,7 @@ De gegevens voor stap 4 vind je in je mailprogramma bij de accountinstellingen (
 
 **Tegoed en kosten (live)**: maak bij OpenAI een beheerderssleutel aan (platform.openai.com → Settings → Organization → **Admin keys** → Create, kies indien mogelijk alleen-lezen) en zet die in Supabase als Secret `OPENAI_ADMIN_KEY`. Vul in de app bij *Instellingen → Tegoed en kosten* het opgewaardeerde bedrag en de datum in. De app toont dan bovenaan het geschatte tegoed (opgewaardeerd min de live kosten sinds die datum). Het resterende tegoed zelf laat OpenAI niet opvragen; de kosten lopen een paar uur achter.
 
-**Behandeld en ★★**: in de inbox zie je per mail of er een concept is gemaakt of het antwoord is gekopieerd; met ✓ markeer je een mail zelf als behandeld en met ☆☆ zet je de markering ★★ *hier gebleven*. Mails met een ster of vlag in je mailprogramma krijgen een ★. Dit alles is op alle computers zichtbaar.
+**Behandeld**: in de inbox zie je per mail of er een concept is gemaakt of het antwoord is gekopieerd; met ✓ markeer je een mail zelf als behandeld. Mails met een ster of vlag in je mailprogramma krijgen een ★. Dit alles is op alle computers zichtbaar.
 
 **Handtekening**: Outlook zet zijn handtekening niet onder concepten die van de server komen. Plak je handtekening daarom één keer in de app (tabblad *Instructies* → *Handtekening onder concepten*); die komt dan onder elk concept. Staat de groet al in je handtekening, maak het veld *Ondertekening* dan leeg, dan zet de AI zelf geen groet meer onder het antwoord.
 

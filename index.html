@@ -115,8 +115,7 @@ pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); bord
 .mail .mk { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 6px; padding: 0 7px; margin-left: 8px; font: inherit; font-size: 12px; cursor: pointer; }
 .mail .mk:hover { border-color: var(--accent); color: var(--accent); }
 .mail .star { color: #c99400; margin-left: 6px; }
-.mail.here { box-shadow: inset 4px 0 0 #e0a800; }
-.mail .here-badge { font-size: 11px; font-weight: 800; background: #fff3c4; color: #8a6200; border-radius: 999px; padding: 1px 8px; margin-left: 6px; white-space: nowrap; }
+
 .mail .when { font-size: 12px; color: var(--muted); }
 .mail .prev { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
 .inboxHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -200,6 +199,10 @@ body.locked > header, body.locked > main { display: none; }
         <textarea id="email" placeholder="Beste Adviesdrogisterij, ik heb vorige week besteld maar…"></textarea>
         <label for="note">Jouw notitie voor het antwoord (optioneel)</label>
         <textarea id="note" placeholder="Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123."></textarea>
+        <div class="actions" id="orderWrap" hidden style="margin-top:6px;align-items:center">
+          <button class="btn" id="orderBtn" type="button">🔎 Bestelling opzoeken</button>
+          <span class="status" id="orderStatus" style="margin:0"></span>
+        </div>
         <div class="row" style="margin-top:4px">
           <div>
             <label for="tone">Toon</label>
@@ -445,7 +448,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.15.0';
+const APP_VERSION = '1.16.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1440,7 +1443,8 @@ function learnFromCopy() {
   if (settings.learn === false) return false;
   const email = $('email').value.trim(), reply = $('reply').value.trim();
   if (!email || !reply || /\[AANVULLEN/i.test(reply)) return false; // niet leren van onafgemaakte antwoorden
-  const ex = scrubNames({ t: Date.now(), email: maskAlways(email), note: maskAlways($('note').value.trim()), reply: maskAlways(reply) });
+  const noteNoShop = $('note').value.replace(/GEGEVENS UIT DE WEBSHOP[\s\S]*$/, '').trim(); // bestelgegevens niet onthouden
+  const ex = scrubNames({ t: Date.now(), email: maskAlways(email), note: maskAlways(noteNoShop), reply: maskAlways(reply) });
   examples = examples.filter(e => e.email !== ex.email); // zelfde mail: nieuwste versie telt
   examples.unshift(ex); examples = examples.slice(0, MAX_EXAMPLES);
   store.set('examples', examples); renderLearned();
@@ -1604,12 +1608,7 @@ $('mailTest').addEventListener('click', async () => {
 const fromLabel = f => (f && (f.name || f.address)) || '(onbekend)';
 // Bijhouden welke mails al behandeld zijn (gedeeld tussen alle computers): uid -> { t, s }
 let handled = store.get('handled', {});
-// ★★ "Hier gebleven": één markering waar het beantwoorden gebleven is (gedeeld tussen computers)
-let bookmark = store.get('bookmark', null);
-function setBookmark(uid) {
-  bookmark = bookmark && bookmark.uid === uid ? null : { uid, t: Date.now() };
-  store.set('bookmark', bookmark); renderInbox();
-}
+
 const HANDLED_LABEL = { concept: '✓ concept gemaakt', gekopieerd: '✓ antwoord gekopieerd', behandeld: '✓ behandeld' };
 function markHandled(uid, status) {
   if (status) handled[uid] = { t: Date.now(), s: status }; else delete handled[uid];
@@ -1622,11 +1621,11 @@ function renderInbox() {
   const todo = $('todoOnly').checked;
   const list = inboxMsgs.map((m, i) => ({ m, i })).filter(x => !todo || !handled[x.m.uid]);
   $('inboxList').innerHTML = list.length ? list.map(({ m, i }) => {
-    const h = handled[m.uid], here = bookmark && bookmark.uid === m.uid;
+    const h = handled[m.uid];
     return `
-      <div class="mail${m.seen ? '' : ' unread'}${h ? ' done' : ''}${here ? ' here' : ''}${currentMsg && currentMsg.uid === m.uid ? ' sel' : ''}" data-m="${i}" title="${esc(m.from.address || '')}">
-        <div class="from">${here ? '<span class="here-badge">★★ hier gebleven</span> ' : ''}${esc(fromLabel(m.from))} · <span class="subj">${esc(m.subject || '(geen onderwerp)')}</span>${m.flagged ? '<span class="star" title="Gemarkeerd in je mailprogramma">★</span>' : ''}${h ? `<span class="badge" title="${new Date(h.t).toLocaleString('nl-NL')}">${HANDLED_LABEL[h.s] || '✓'}</span>` : ''}</div>
-        <div class="when">${m.date ? new Date(m.date).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}<button class="mk" data-bm="${m.uid}" type="button" title="${here ? 'Markering ★★ weghalen' : 'Markeer met ★★: hier gebleven'}">${here ? '★★' : '☆☆'}</button><button class="mk" data-mk="${m.uid}" type="button" title="${h ? 'Markering weghalen' : 'Markeer als behandeld'}">${h ? '↺' : '✓'}</button></div>
+      <div class="mail${m.seen ? '' : ' unread'}${h ? ' done' : ''}${currentMsg && currentMsg.uid === m.uid ? ' sel' : ''}" data-m="${i}" title="${esc(m.from.address || '')}">
+        <div class="from">${esc(fromLabel(m.from))} · <span class="subj">${esc(m.subject || '(geen onderwerp)')}</span>${m.flagged ? '<span class="star" title="Gemarkeerd in je mailprogramma">★</span>' : ''}${h ? `<span class="badge" title="${new Date(h.t).toLocaleString('nl-NL')}">${HANDLED_LABEL[h.s] || '✓'}</span>` : ''}</div>
+        <div class="when">${m.date ? new Date(m.date).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}<button class="mk" data-mk="${m.uid}" type="button" title="${h ? 'Markering weghalen' : 'Markeer als behandeld'}">${h ? '↺' : '✓'}</button></div>
       </div>`;
   }).join('') : `<p class="empty" style="padding:10px 12px;margin:0">${todo && inboxMsgs.length ? 'Alles in deze lijst is behandeld. 🎉' : `Geen ${$('unreadOnly').checked ? 'ongelezen ' : ''}mails.`}</p>`;
   const open = inboxMsgs.filter(m => !handled[m.uid]).length;
@@ -1656,8 +1655,6 @@ $('unreadOnly').addEventListener('change', () => { mailCfg().unreadOnly = $('unr
 // Terug in het venster en de lijst is ouder dan 3 minuten: vanzelf vernieuwen
 window.addEventListener('focus', () => { if (mailOn() && Date.now() - inboxLoaded > 3 * 60000) loadInbox(); });
 $('inboxList').addEventListener('click', async e => {
-  const bm = e.target.closest('[data-bm]');
-  if (bm) { e.stopPropagation(); setBookmark(+bm.dataset.bm); return; }
   const mk = e.target.closest('[data-mk]');
   if (mk) { e.stopPropagation(); const uid = +mk.dataset.mk; markHandled(uid, handled[uid] ? null : 'behandeld'); return; }
   const row = e.target.closest('[data-m]'); if (!row) return;
@@ -1668,9 +1665,10 @@ $('inboxList').addEventListener('click', async e => {
     $('email').value = `Van: ${fromLabel(full.from)}\nOnderwerp: ${full.subject || ''}\n\n${full.text}` +
       (full.attachments && full.attachments.length ? `\n\n(Bijlagen: ${full.attachments.join(', ')})` : '');
     $('note').value = ''; $('reply').value = ''; convo = null; $('checks').hidden = true; showContext(null);
-    currentMsg = { uid: full.uid, subject: full.subject };
+    currentMsg = { uid: full.uid, subject: full.subject, from: (full.replyTo && full.replyTo[0] && full.replyTo[0].address) || (full.from && full.from.address) || '' };
     document.querySelectorAll('.mail.sel').forEach(x => x.classList.remove('sel')); row.classList.add('sel');
     renderMail(); setStatus(st, `Ingeladen: "${full.subject || ''}". Klik op "Antwoord maken".`);
+    findOrder(true);
     $('email').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } catch (err) { setStatus(st, err.message, true); }
 });
@@ -1689,6 +1687,42 @@ $('draftBtn').addEventListener('click', async () => {
   } catch (e) { setStatus(st, 'Concept opslaan mislukt: ' + e.message, true); }
 });
 renderMail(); if (mailOn()) loadInbox();
+
+// ---------- Bestelling opzoeken in het webshopbeheer (via de eigen Chrome-extensie) ----------
+// De extensie leest alleen in het geopende beheer (adviesdrogisterij.nl/App) met de eigen login; er staat nergens een wachtwoord.
+const hasBridge = () => document.documentElement.dataset.adsBridge === '1';
+$('orderWrap').hidden = !hasBridge();
+function askExtension(email, orders) {
+  return new Promise(ok => {
+    const id = Math.random().toString(36).slice(2);
+    const done = r => { clearTimeout(timer); window.removeEventListener('message', onMsg); ok(r); };
+    const timer = setTimeout(() => done({ error: 'De extensie gaf geen antwoord. Ververs het beheer en de app en probeer het opnieuw.' }), 15000);
+    function onMsg(e) { if (e.source === window && e.data && e.data.source === 'ads-ext' && e.data.id === id) done(e.data); }
+    window.addEventListener('message', onMsg);
+    window.postMessage({ source: 'ads-app', type: 'lookup', id, email, orders }, location.origin);
+  });
+}
+function mailFacts() {
+  const text = $('email').value;
+  const email = (currentMsg && currentMsg.from) || (text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []).find(a => !/adviesdrogisterij/i.test(a)) || '';
+  const orders = [...new Set(text.match(/\b\d{6}\b/g) || [])].slice(0, 5); // ordernummers zijn 6 cijfers
+  return { email, orders };
+}
+async function findOrder(auto) {
+  if (!hasBridge()) return;
+  const st = $('orderStatus'), { email, orders } = mailFacts();
+  if (!email && !orders.length) { if (!auto) setStatus(st, 'Geen mailadres of ordernummer gevonden in de mail.', true); return; }
+  setStatus(st, 'Zoeken in je webshopbeheer…');
+  const r = await askExtension(email, orders);
+  if (r.error) { setStatus(st, r.error, true); return; }
+  if (!r.orders || !r.orders.length) { setStatus(st, 'Geen bestelling gevonden in de geopende lijst Beheer orders.'); return; }
+  const block = 'GEGEVENS UIT DE WEBSHOP (actueel; gebruik deze in het antwoord en verzin niets):\n' +
+    r.orders.map((o, i) => `Bestelling ${i + 1}: ` + Object.entries(o).map(([k, v]) => `${k}: ${v}`).join('; ')).join('\n');
+  const note = $('note');
+  note.value = (note.value.replace(/GEGEVENS UIT DE WEBSHOP[\s\S]*$/, '').trim() + '\n\n' + block).trim();
+  setStatus(st, `${r.orders.length} bestelling${r.orders.length === 1 ? '' : 'en'} gevonden en in de notitie gezet.`);
+}
+$('orderBtn').addEventListener('click', () => findOrder(false));
 
 // ---------- Tegoed en kosten (live via de functie "mail") ----------
 const credit = () => settings.credit || (settings.credit = {});
@@ -1804,7 +1838,7 @@ window.onVaultReload = () => {
   instructions = store.get('instructions', DEFAULT_INSTRUCTIONS); signature = store.get('signature', DEFAULT_SIGNATURE);
   kb = store.get('kb', []); history = store.get('history', []);
   examples = store.get('examples', []); lessons = store.get('lessons', []); renderLearned(); renderMail();
-  handled = store.get('handled', {}); bookmark = store.get('bookmark', null); renderInbox();
+  handled = store.get('handled', {}); renderInbox();
   if (document.activeElement !== $('instructions')) $('instructions').value = instructions;
   if (document.activeElement !== $('signature')) $('signature').value = signature;
   mailSig = store.get('mailSig', ''); if (document.activeElement !== $('mailSig')) $('mailSig').innerHTML = cleanSig(mailSig).html;
