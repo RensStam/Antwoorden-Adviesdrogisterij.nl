@@ -18,6 +18,7 @@
 //   IMAP_DRAFTS             (optioneel) naam van de conceptenmap, als die niet vanzelf wordt gevonden
 //   IMAP_ALLOW_SELF_SIGNED  (optioneel) "true" als de mailserver een eigen (niet-officieel) certificaat heeft
 //   IMAP_SECURE             (optioneel) "false" om STARTTLS te gebruiken op een andere poort dan 143
+//   OPENAI_ADMIN_KEY        (optioneel) OpenAI-beheerderssleutel, alleen gebruikt om de kosten op te vragen (actie costs)
 
 import { ImapFlow } from 'npm:imapflow@1.7.8';
 import PostalMime from 'npm:postal-mime@2.7.6';
@@ -130,6 +131,7 @@ async function listInbox(c: ImapFlow, unreadOnly: boolean, limit: number) {
         from: { name: f.name || '', address: f.address || '' },
         date: d ? new Date(d).toISOString() : null,
         seen: !!m.flags?.has('\\Seen'),
+        flagged: !!m.flags?.has('\\Flagged'), // ster/vlag uit het mailprogramma
       });
     }
     return out.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -268,6 +270,36 @@ async function makeDraft(c: ImapFlow, uid: number, replyText: string, sig: Signa
   return { ok: true, folder, to: (orig.replyTo[0] || orig.from).address, subject: orig.subject };
 }
 
+// ---------- OpenAI-kosten (live, via de officiële Costs API; alleen lezen) ----------
+async function openaiCosts(sinceSec: number) {
+  const key = env('OPENAI_ADMIN_KEY');
+  if (!key) throw new UserError('Nog geen OpenAI-beheerderssleutel ingesteld: voeg de Secret OPENAI_ADMIN_KEY toe in Supabase (zie de README).', 400);
+  const now = new Date();
+  const monthStart = Math.floor(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) / 1000);
+  const start = Math.min(monthStart, sinceSec || monthStart);
+  const days: { day: string; usd: number }[] = [];
+  let page = '';
+  for (let i = 0; i < 6; i++) { // max. 6 pagina's (ruim een jaar per dag)
+    const q = new URLSearchParams({ start_time: String(start), bucket_width: '1d', limit: '180' });
+    if (page) q.set('page', page);
+    const r = await fetch((env('OPENAI_API_BASE') || 'https://api.openai.com') + '/v1/organization/costs?' + q, { headers: { Authorization: 'Bearer ' + key } });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const m = j?.error?.message || ('fout ' + r.status);
+      if (r.status === 401 || r.status === 403) throw new UserError('OpenAI weigert de beheerderssleutel: controleer OPENAI_ADMIN_KEY (het moet een Admin key zijn). ' + m, 502);
+      throw new UserError('Kosten ophalen bij OpenAI mislukt: ' + m, 502);
+    }
+    for (const bucket of j.data || []) {
+      const usd = (bucket.results || []).reduce((n: number, x: any) => n + Number(x?.amount?.value || 0), 0);
+      days.push({ day: new Date(bucket.start_time * 1000).toISOString().slice(0, 10), usd });
+    }
+    if (!j.has_more || !j.next_page) break;
+    page = j.next_page;
+  }
+  const sum = (from: number) => days.filter((d) => Date.parse(d.day) / 1000 >= from).reduce((n, d) => n + d.usd, 0);
+  return { month: sum(monthStart), since: sinceSec ? sum(sinceSec) : null, days: days.slice(-31), updated: new Date().toISOString() };
+}
+
 // ---------- verzoeken van de app ----------
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
@@ -276,6 +308,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     await verify(String(body.token || ''), req.headers.get('apikey') || env('SUPABASE_ANON_KEY'));
     const action = String(body.action || '');
+    if (action === 'costs') return json(await openaiCosts(Math.max(0, Number(body.since) || 0)));
     if (action === 'ping') {
       return json(await withImap(async (c) => {
         const st = await c.status('INBOX', { messages: true, unseen: true });

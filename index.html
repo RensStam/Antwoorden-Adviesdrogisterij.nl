@@ -31,6 +31,7 @@
   --err: #ff8a80; --err-soft: #3a1f1d; --field: #181c1b; --nav: #ff6b5b; --nav-active: #7e0d0d; --logo: #ff6b5b;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 Nunito, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 header { background: var(--panel); }
 .promo { background: var(--brand-lime); color: #fff; font-size: 13px; font-weight: 700; text-align: center; padding: 5px 16px; }
@@ -94,6 +95,7 @@ button.btn:disabled { opacity: .55; cursor: default; }
 .hist:last-child { border-bottom: 0; }
 .hist .meta { font-size: 12px; color: var(--muted); }
 .hist .snip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill.low { background: var(--warn-soft); color: var(--warn); }
 .pill { display: inline-block; white-space: nowrap; font-size: 12px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 8px; }
 details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; }
@@ -112,6 +114,9 @@ pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); bord
 .mail .badge { font-size: 11px; font-weight: 700; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 8px; margin-left: 6px; white-space: nowrap; }
 .mail .mk { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 6px; padding: 0 7px; margin-left: 8px; font: inherit; font-size: 12px; cursor: pointer; }
 .mail .mk:hover { border-color: var(--accent); color: var(--accent); }
+.mail .star { color: #c99400; margin-left: 6px; }
+.mail.here { box-shadow: inset 4px 0 0 #e0a800; }
+.mail .here-badge { font-size: 11px; font-weight: 800; background: #fff3c4; color: #8a6200; border-radius: 999px; padding: 1px 8px; margin-left: 6px; white-space: nowrap; }
 .mail .when { font-size: 12px; color: var(--muted); }
 .mail .prev { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
 .inboxHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -151,7 +156,7 @@ body.locked > header, body.locked > main { display: none; }
   <div class="wrap">
     <div class="top">
       <h1><img class="logo-img" src="logo.svg" alt="adviesdrogisterij.nl"><span class="logo-sub">Antwoorden</span> <small class="appVersion" title="Versie van de app"></small></h1>
-      <div class="right"><span class="note" id="syncState" style="margin:0"></span><span class="pill" id="modelPill"></span><button class="btn" id="lockNow" type="button">Vergrendelen</button></div>
+      <div class="right"><span class="note" id="syncState" style="margin:0"></span><span class="pill" id="creditPill" hidden title="Geschat tegoed bij OpenAI (opgewaardeerd min live kosten)"></span><span class="pill" id="modelPill"></span><button class="btn" id="lockNow" type="button">Vergrendelen</button></div>
     </div>
   </div>
   <div class="navbar"><div class="wrap">
@@ -411,6 +416,16 @@ body.locked > header, body.locked > main { display: none; }
         <div class="status" id="pwStatus"></div>
       </div>
       <div class="card">
+        <h2>Tegoed en kosten</h2>
+        <p class="note">De app haalt de <b>live kosten</b> op bij OpenAI (via de functie "mail" met de Secret <b>OPENAI_ADMIN_KEY</b>, zie de README). Het resterende tegoed laat OpenAI niet opvragen; dat rekent de app uit: opgewaardeerd bedrag min de kosten sinds die datum. OpenAI werkt de kosten met een paar uur vertraging bij.</p>
+        <div class="row">
+          <div><label for="creditAmount">Opgewaardeerd tegoed ($)</label><input id="creditAmount" type="number" min="0" step="0.01" placeholder="bijv. 20"></div>
+          <div><label for="creditDate">Opgewaardeerd op</label><input id="creditDate" type="date"></div>
+        </div>
+        <div class="actions"><button class="btn primary" id="costsBtn">Kosten ophalen</button></div>
+        <div class="status" id="costsStatus"></div>
+      </div>
+      <div class="card">
         <h2>Koppeling met je mailbox</h2>
         <p class="note">Laad mails direct uit je eigen mailbox (IMAP) en zet het antwoord als concept klaar in je map Concepten; verzenden doe je zelf in je mailprogramma. Eenmalig instellen in Supabase: de functie <b>mail</b> en de gegevens van je mailserver als Secrets (zie de README). Het wachtwoord van je mailbox staat alleen daar, nooit in de app.</p>
         <p class="note" id="mailServerOnly" hidden style="color:var(--warn)">Alleen beschikbaar met centrale opslag (Supabase).</p>
@@ -430,7 +445,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.13.0';
+const APP_VERSION = '1.15.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1589,6 +1604,12 @@ $('mailTest').addEventListener('click', async () => {
 const fromLabel = f => (f && (f.name || f.address)) || '(onbekend)';
 // Bijhouden welke mails al behandeld zijn (gedeeld tussen alle computers): uid -> { t, s }
 let handled = store.get('handled', {});
+// ★★ "Hier gebleven": één markering waar het beantwoorden gebleven is (gedeeld tussen computers)
+let bookmark = store.get('bookmark', null);
+function setBookmark(uid) {
+  bookmark = bookmark && bookmark.uid === uid ? null : { uid, t: Date.now() };
+  store.set('bookmark', bookmark); renderInbox();
+}
 const HANDLED_LABEL = { concept: '✓ concept gemaakt', gekopieerd: '✓ antwoord gekopieerd', behandeld: '✓ behandeld' };
 function markHandled(uid, status) {
   if (status) handled[uid] = { t: Date.now(), s: status }; else delete handled[uid];
@@ -1601,11 +1622,11 @@ function renderInbox() {
   const todo = $('todoOnly').checked;
   const list = inboxMsgs.map((m, i) => ({ m, i })).filter(x => !todo || !handled[x.m.uid]);
   $('inboxList').innerHTML = list.length ? list.map(({ m, i }) => {
-    const h = handled[m.uid];
+    const h = handled[m.uid], here = bookmark && bookmark.uid === m.uid;
     return `
-      <div class="mail${m.seen ? '' : ' unread'}${h ? ' done' : ''}${currentMsg && currentMsg.uid === m.uid ? ' sel' : ''}" data-m="${i}" title="${esc(m.from.address || '')}">
-        <div class="from">${esc(fromLabel(m.from))} · <span class="subj">${esc(m.subject || '(geen onderwerp)')}</span>${h ? `<span class="badge" title="${new Date(h.t).toLocaleString('nl-NL')}">${HANDLED_LABEL[h.s] || '✓'}</span>` : ''}</div>
-        <div class="when">${m.date ? new Date(m.date).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}<button class="mk" data-mk="${m.uid}" type="button" title="${h ? 'Markering weghalen' : 'Markeer als behandeld'}">${h ? '↺' : '✓'}</button></div>
+      <div class="mail${m.seen ? '' : ' unread'}${h ? ' done' : ''}${here ? ' here' : ''}${currentMsg && currentMsg.uid === m.uid ? ' sel' : ''}" data-m="${i}" title="${esc(m.from.address || '')}">
+        <div class="from">${here ? '<span class="here-badge">★★ hier gebleven</span> ' : ''}${esc(fromLabel(m.from))} · <span class="subj">${esc(m.subject || '(geen onderwerp)')}</span>${m.flagged ? '<span class="star" title="Gemarkeerd in je mailprogramma">★</span>' : ''}${h ? `<span class="badge" title="${new Date(h.t).toLocaleString('nl-NL')}">${HANDLED_LABEL[h.s] || '✓'}</span>` : ''}</div>
+        <div class="when">${m.date ? new Date(m.date).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}<button class="mk" data-bm="${m.uid}" type="button" title="${here ? 'Markering ★★ weghalen' : 'Markeer met ★★: hier gebleven'}">${here ? '★★' : '☆☆'}</button><button class="mk" data-mk="${m.uid}" type="button" title="${h ? 'Markering weghalen' : 'Markeer als behandeld'}">${h ? '↺' : '✓'}</button></div>
       </div>`;
   }).join('') : `<p class="empty" style="padding:10px 12px;margin:0">${todo && inboxMsgs.length ? 'Alles in deze lijst is behandeld. 🎉' : `Geen ${$('unreadOnly').checked ? 'ongelezen ' : ''}mails.`}</p>`;
   const open = inboxMsgs.filter(m => !handled[m.uid]).length;
@@ -1635,6 +1656,8 @@ $('unreadOnly').addEventListener('change', () => { mailCfg().unreadOnly = $('unr
 // Terug in het venster en de lijst is ouder dan 3 minuten: vanzelf vernieuwen
 window.addEventListener('focus', () => { if (mailOn() && Date.now() - inboxLoaded > 3 * 60000) loadInbox(); });
 $('inboxList').addEventListener('click', async e => {
+  const bm = e.target.closest('[data-bm]');
+  if (bm) { e.stopPropagation(); setBookmark(+bm.dataset.bm); return; }
   const mk = e.target.closest('[data-mk]');
   if (mk) { e.stopPropagation(); const uid = +mk.dataset.mk; markHandled(uid, handled[uid] ? null : 'behandeld'); return; }
   const row = e.target.closest('[data-m]'); if (!row) return;
@@ -1666,6 +1689,39 @@ $('draftBtn').addEventListener('click', async () => {
   } catch (e) { setStatus(st, 'Concept opslaan mislukt: ' + e.message, true); }
 });
 renderMail(); if (mailOn()) loadInbox();
+
+// ---------- Tegoed en kosten (live via de functie "mail") ----------
+const credit = () => settings.credit || (settings.credit = {});
+const usd = n => '$' + Number(n || 0).toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function renderCredit() {
+  const c = credit(), pill = $('creditPill');
+  $('creditAmount').value = c.amount ?? ''; $('creditDate').value = c.date || '';
+  pill.hidden = !(c.enabled && c.last);
+  if (!c.last) return;
+  const left = c.amount ? c.amount - (c.last.since || 0) : null;
+  pill.textContent = left !== null ? `Tegoed ≈ ${usd(left)}` : `Deze maand ${usd(c.last.month)}`;
+  pill.classList.toggle('low', left !== null && left < 2);
+  setStatus($('costsStatus'), `Deze maand uitgegeven: ${usd(c.last.month)}` +
+    (left !== null ? ` · sinds ${new Date(c.date).toLocaleDateString('nl-NL')}: ${usd(c.last.since)} · geschat tegoed: ${usd(left)}` : ' · vul je opgewaardeerde bedrag en de datum in voor het tegoed') +
+    ` · bijgewerkt ${new Date(c.last.at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}.` +
+    (left !== null && left < 2 ? ' ⚠ Bijna op: waardeer op bij platform.openai.com → Billing.' : ''), left !== null && left < 2);
+}
+async function loadCosts(show) {
+  if (window.vaultMode !== 'server' || !credit().enabled) return;
+  if (show) setStatus($('costsStatus'), 'Kosten ophalen bij OpenAI…');
+  const since = credit().date ? Math.floor(Date.parse(credit().date + 'T00:00:00Z') / 1000) : 0;
+  try {
+    const r = await window.mailApi('costs', { since });
+    credit().last = { month: r.month, since: r.since, at: Date.now() }; saveSettings(); renderCredit();
+  } catch (e) { if (show) setStatus($('costsStatus'), 'Mislukt: ' + e.message, true); }
+}
+$('creditAmount').addEventListener('change', e => { const v = parseFloat(String(e.target.value).replace(',', '.')); credit().amount = isFinite(v) && v > 0 ? v : null; if (!credit().date && credit().amount) credit().date = new Date().toISOString().slice(0, 10); saveSettings(); renderCredit(); loadCosts(false); });
+$('creditDate').addEventListener('change', e => { credit().date = e.target.value || ''; saveSettings(); loadCosts(true); });
+$('costsBtn').addEventListener('click', () => {
+  if (window.vaultMode !== 'server') { setStatus($('costsStatus'), 'Alleen beschikbaar met centrale opslag (Supabase).', true); return; }
+  credit().enabled = true; saveSettings(); loadCosts(true);
+});
+renderCredit(); loadCosts(false); setInterval(() => loadCosts(false), 30 * 60000);
 
 // ---------- back-up ----------
 $('exportBtn').addEventListener('click', () => {
@@ -1748,7 +1804,7 @@ window.onVaultReload = () => {
   instructions = store.get('instructions', DEFAULT_INSTRUCTIONS); signature = store.get('signature', DEFAULT_SIGNATURE);
   kb = store.get('kb', []); history = store.get('history', []);
   examples = store.get('examples', []); lessons = store.get('lessons', []); renderLearned(); renderMail();
-  handled = store.get('handled', {}); renderInbox();
+  handled = store.get('handled', {}); bookmark = store.get('bookmark', null); renderInbox();
   if (document.activeElement !== $('instructions')) $('instructions').value = instructions;
   if (document.activeElement !== $('signature')) $('signature').value = signature;
   mailSig = store.get('mailSig', ''); if (document.activeElement !== $('mailSig')) $('mailSig').innerHTML = cleanSig(mailSig).html;
