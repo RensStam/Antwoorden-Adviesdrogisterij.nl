@@ -263,6 +263,28 @@ function buildReply(orig: Awaited<ReturnType<typeof readMessage>>, replyText: st
   ].join('\r\n');
 }
 
+// Nieuw bericht (geen antwoord op een mail), bijv. om een klant uit jezelf te informeren
+function buildNew(to: string, toName: string, subject: string, text: string, sig: Signature = {}) {
+  const fromAddr = env('MAIL_FROM') || env('IMAP_USER');
+  const fromName = env('MAIL_FROM_NAME') || 'Adviesdrogisterij.nl';
+  const domain = (fromAddr.split('@')[1] || 'adviesdrogisterij.nl').replace(/[^a-z0-9.-]/gi, '');
+  const body = text.replace(/\r/g, '').trim();
+  const sigText = (sig.text || '').replace(/\r/g, '').trim().slice(0, 5000), sigHtml = cleanSignature(sig.html || '').trim();
+  const plain = `${body}${sigText ? '\n\n' + sigText : ''}\n`.replace(/\n/g, '\r\n');
+  const html = '<html><body><div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">' +
+    body.split(/\n{2,}/).map((p) => `<p style="margin:0 0 12px">${escHtml(p).replace(/\n/g, '<br>')}</p>`).join('') + '</div>' +
+    (sigHtml ? `<div>${sigHtml}</div>` : sigText ? `<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">${escHtml(sigText).replace(/\n/g, '<br>')}</div>` : '') + '</body></html>';
+  const boundary = '=_ads_' + crypto.randomUUID().replace(/-/g, '');
+  return [
+    `From: ${address(fromName, fromAddr)}`, `To: ${address(toName, to)}`, `Subject: ${encodeWords(subject)}`,
+    `Date: ${new Date().toUTCString().replace('GMT', '+0000')}`, `Message-ID: <${crypto.randomUUID()}@${domain}>`,
+    'MIME-Version: 1.0', `Content-Type: multipart/alternative; boundary="${boundary}"`, '',
+    `--${boundary}`, 'Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: base64', '', wrap76(utf8b64(plain)),
+    `--${boundary}`, 'Content-Type: text/html; charset=utf-8', 'Content-Transfer-Encoding: base64', '', wrap76(utf8b64(html)),
+    `--${boundary}--`, '',
+  ].join('\r\n');
+}
+
 async function makeDraft(c: ImapFlow, uid: number, replyText: string, sig: Signature) {
   const orig = await readMessage(c, uid);
   const folder = await draftsPath(c);
@@ -320,6 +342,18 @@ Deno.serve(async (req) => {
     if (action === 'list') {
       const limit = Math.min(Math.max(Number(body.limit) || 40, 1), 100);
       return json({ messages: await withImap((c) => listInbox(c, !!body.unreadOnly, limit)) });
+    }
+    if (action === 'newdraft') {
+      const to = String(body.to || '').trim(), subject = String(body.subject || '').trim().slice(0, 200), text = String(body.text || '').trim();
+      if (!/^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(to)) throw new UserError('Ongeldig mailadres van de ontvanger.');
+      if (!subject) throw new UserError('Vul een onderwerp in.');
+      if (!text || text.length > 50000) throw new UserError('Het bericht is leeg of te lang.');
+      const sig: Signature = { html: String(body.signatureHtml || ''), text: String(body.signatureText || '') };
+      return json(await withImap(async (c) => {
+        const folder = await draftsPath(c);
+        await c.append(folder, buildNew(to, String(body.toName || '').slice(0, 100), subject, text, sig), ['\\Draft', '\\Seen'], new Date());
+        return { ok: true, folder, to, subject };
+      }));
     }
     const uid = Number(body.uid);
     if (!Number.isInteger(uid) || uid <= 0) throw new UserError('Ongeldige mail.');

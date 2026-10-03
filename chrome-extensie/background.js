@@ -63,6 +63,10 @@ function lookupInExt(email, orders) {
         if (!val || skip.test(f.label) || skip.test(f.key) || typeof d[f.key] === 'object' && !(d[f.key] instanceof Date)) continue;
         row[f.label] = val.slice(0, 200);
       }
+      // Mailadres van de klant apart (alleen als ontvanger voor een nieuw concept, niet voor de AI)
+      const mailKey = (cols || []).find((f) => /e-?mail/i.test(f.label)) || { key: Object.keys(d).find((k) => /e-?mail/i.test(k)) };
+      const mail = mailKey.key ? fmt(d[mailKey.key]).trim() : '';
+      if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) row._email = mail;
       const key = JSON.stringify(row);
       if (Object.keys(row).length && !seen.has(key)) { seen.add(key); results.push(row); }
     });

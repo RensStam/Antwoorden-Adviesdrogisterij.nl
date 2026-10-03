@@ -100,6 +100,21 @@ button.btn:disabled { opacity: .55; cursor: default; }
 details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; }
 .empty { color: var(--muted); font-size: 14px; }
+.mailview { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); height: 460px; overflow: auto; resize: vertical; }
+.mailview .mv-head { padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--field); position: sticky; top: 0; }
+.mailview .mv-subj { font-weight: 800; font-size: 16px; margin-bottom: 6px; overflow-wrap: anywhere; }
+.mailview .mv-meta { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; font-size: 13px; }
+.mailview .mv-meta dt { color: var(--muted); } .mailview .mv-meta dd { margin: 0; overflow-wrap: anywhere; }
+.mailview .mv-tools { display: flex; justify-content: flex-end; margin-top: 6px; }
+.mailview .mv-tools button { padding: 3px 10px; font-size: 13px; }
+.mailview .mv-body { padding: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.mailview .mv-body p { margin: 0 0 12px; }
+.mailview details { margin-top: 6px; }
+.mailview summary { color: var(--accent); cursor: pointer; font-size: 13px; font-weight: 700; }
+.mailview .mv-quote { margin-top: 10px; border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); white-space: pre-wrap; font-size: 14px; }
+.mailview .mv-quote .mv-intro { font-weight: 700; display: block; margin: 10px 0 4px; }
+.newmail { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; background: var(--accent-soft); padding: 10px 12px; font-size: 14px; }
+.newmail .row { margin-top: 6px; } .newmail input { background: var(--panel); }
 .orderbox { margin: 0 0 16px; border: 1px solid var(--line); border-left: 4px solid var(--brand-blue); border-radius: 10px; padding: 12px 16px; background: var(--panel); font-size: 14px; }
 .orderbox .ord + .ord { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
 .orderbox .ogrid { display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 4px 14px; margin-top: 6px; }
@@ -190,6 +205,14 @@ body.locked > header, body.locked > main { display: none; }
 
   <!-- ANTWOORD MAKEN -->
   <section data-tab="compose" class="active">
+    <div class="card" id="searchCard" hidden style="margin-bottom:16px;padding:12px 18px">
+      <div class="row" style="align-items:center">
+        <h2 style="margin:0;flex:0 0 auto">Bestelling zoeken</h2>
+        <input id="orderQuery" placeholder="Ordernummer of e-mailadres van de klant" style="flex:1 1 260px" autocomplete="off">
+        <button class="btn primary" id="orderSearch" type="button" style="flex:0 0 auto">🔎 Zoeken</button>
+      </div>
+      <div class="status" id="orderStatus" style="margin-top:4px"></div>
+    </div>
     <div class="card" id="inboxCard" hidden style="margin-bottom:16px">
       <div class="inboxHead">
         <h2>Inbox <span class="note" id="inboxWho" style="font-weight:400"></span></h2>
@@ -205,15 +228,13 @@ body.locked > header, body.locked > main { display: none; }
     <div class="orderbox" id="orderBox" hidden></div>
     <div class="grid">
       <div class="card">
-        <h2>Mail van de klant</h2>
-        <label for="email">Plak hier de e-mail (inclusief eerdere berichten als dat helpt)</label>
+        <h2 id="mailCardTitle">Mail van de klant</h2>
+        <div class="newmail" id="newMailBox" hidden></div>
+        <label for="email" id="emailLabel">Plak hier de e-mail (inclusief eerdere berichten als dat helpt)</label>
+        <div class="mailview" id="mailView" hidden></div>
         <textarea id="email" placeholder="Beste Adviesdrogisterij, ik heb vorige week besteld maar…"></textarea>
-        <label for="note">Jouw notitie voor het antwoord (optioneel)</label>
+        <label for="note" id="noteLabel">Jouw notitie voor het antwoord (optioneel)</label>
         <textarea id="note" placeholder="Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123."></textarea>
-        <div class="actions" id="orderWrap" hidden style="margin-top:6px;align-items:center">
-          <button class="btn" id="orderBtn" type="button">🔎 Bestelling opzoeken</button>
-          <span class="status" id="orderStatus" style="margin:0"></span>
-        </div>
         <div class="row" style="margin-top:4px">
           <div>
             <label for="tone">Toon</label>
@@ -459,7 +480,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.18.2';
+const APP_VERSION = '1.20.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1373,6 +1394,7 @@ async function run(messages, model = convoModel || settings.model) {
 }
 
 $('genBtn').addEventListener('click', () => {
+  if (newMail) return makeNewMail();
   const email = $('email').value.trim();
   if (!email) { setStatus($('genStatus'), 'Plak eerst de mail van de klant.', true); return; }
   if (!isConfigured()) { go('settings'); setStatus($('setStatus'), 'Stel eerst een AI-model in.', true); return; }
@@ -1385,6 +1407,16 @@ $('genBtn').addEventListener('click', () => {
   run([{ role: 'system', content: buildSystem(knowledge, ex) }, { role: 'user', content: user }], model);
 });
 
+function makeNewMail() {
+  if (!isConfigured()) { go('settings'); setStatus($('setStatus'), 'Stel eerst een AI-model in.', true); return; }
+  const note = $('note').value.trim(), own = note.replace(/\n*— Info uit de webshop[^\n]*(\n[^\n]*)?/g, '').trim();
+  if (!own) { setStatus($('genStatus'), 'Typ eerst in het notitieveld wat je de klant wilt laten weten.', true); $('note').focus(); return; }
+  const subject = ($('nmSubject') && $('nmSubject').value.trim()) || '';
+  const knowledge = selectKnowledge(note); showContext(knowledge, 0);
+  const user = `NIEUW BERICHT AAN DE KLANT (dit is geen antwoord op een mail van de klant)\nKlant: ${newMail.name || '(naam onbekend)'}\nOnderwerp: ${subject}\n\nWAT DE MEDEWERKER DE KLANT WIL LATEN WETEN (volg dit):\n${mask(note)}\n\nSchrijf deze nieuwe e-mail aan de klant, met een passende aanhef. Geef alleen de tekst van de mail, zonder onderwerpregel.`;
+  const model = $('cheap').checked && cheapModel() ? cheapModel() : settings.model;
+  run([{ role: 'system', content: buildSystem(knowledge, []) }, { role: 'user', content: user }], model);
+}
 function refine(instruction) {
   if (!convo) { setStatus($('genStatus'), 'Maak eerst een antwoord.', true); return; }
   const msgs = convo.slice(0, -1);
@@ -1563,7 +1595,7 @@ $('checks').addEventListener('click', e => {
   refine(`Verbeter het antwoord volgens de huisregels: ${fix.join('; ')}. Verwijder verboden woorden en herschrijf zinnen zonder streepjes (-, –, —). Laat de rest van de inhoud gelijk.`);
 });
 $('clearBtn').addEventListener('click', () => {
-  $('email').value = $('note').value = $('reply').value = ''; convo = null; currentMsg = null; foundOrders = []; foundRaw = []; showOrders();
+  $('email').value = $('note').value = $('reply').value = ''; convo = null; currentMsg = null; foundOrders = []; foundRaw = []; showOrders(); hideMailView(); endNewMail();
   showContext(null); $('checks').hidden = true; setStatus($('genStatus'), ''); renderMail();
   document.querySelectorAll('.mail.sel').forEach(x => x.classList.remove('sel'));
 });
@@ -1595,7 +1627,7 @@ $('histClear').addEventListener('click', () => { if (confirm('Geschiedenis wisse
 // ---------- Koppeling met de eigen mailbox (IMAP, via de Supabase-functie "mail") ----------
 const mailCfg = () => settings.mail || (settings.mail = {});
 const mailOn = () => !!mailCfg().enabled && window.vaultMode === 'server';
-let currentMsg = null, inboxMsgs = [], inboxLoaded = 0;
+let currentMsg = null, inboxMsgs = [], inboxLoaded = 0, newMail = null; // newMail: nieuwe mail aan een klant (geen antwoord)
 function renderMail() {
   $('mailEnabled').checked = !!mailCfg().enabled;
   $('unreadOnly').checked = !!mailCfg().unreadOnly;
@@ -1603,7 +1635,7 @@ function renderMail() {
   $('mailEnabled').disabled = $('mailTest').disabled = window.vaultMode !== 'server';
   $('mailServerOnly').hidden = window.vaultMode === 'server';
   $('inboxCard').hidden = !mailOn();
-  $('draftBtn').hidden = !(mailOn() && currentMsg);
+  $('draftBtn').hidden = !(mailOn() && (currentMsg || newMail));
 }
 $('mailEnabled').addEventListener('change', e => { mailCfg().enabled = e.target.checked; saveSettings(); renderMail(); if (e.target.checked) loadInbox(); });
 $('mailTest').addEventListener('click', async () => {
@@ -1666,6 +1698,42 @@ $('inboxRefresh').addEventListener('click', loadInbox);
 $('unreadOnly').addEventListener('change', () => { mailCfg().unreadOnly = $('unreadOnly').checked; saveSettings(); loadInbox(); });
 // Terug in het venster en de lijst is ouder dan 3 minuten: vanzelf vernieuwen
 window.addEventListener('focus', () => { if (mailOn() && Date.now() - inboxLoaded > 3 * 60000) loadInbox(); });
+// ---------- Leesweergave van een mail, zoals in Outlook ----------
+// Het nieuwe bericht bovenaan; eerdere (geciteerde) berichten ingeklapt en zonder ">"-tekens.
+const QUOTE_START = /^(op .{3,120}(schreef|geschreven)|on .{3,120}wrote|am .{3,120}schrieb|le .{3,120}a écrit|-{2,}\s*(oorspronkelijk|original|origineel) bericht|-{2,}\s*original message|van:\s.+|from:\s.+)/i;
+function splitQuoted(text) {
+  const lines = text.replace(/\r/g, '').split('\n');
+  let cut = lines.findIndex((l, i) => QUOTE_START.test(l.trim()) || (/^>/.test(l) && lines.slice(i, i + 3).every(x => /^>|^\s*$/.test(x))));
+  if (cut <= 0) return { fresh: text.trim(), quoted: '' };
+  // "Op ... schreef X <" kan over twee regels lopen
+  return { fresh: lines.slice(0, cut).join('\n').trim(), quoted: lines.slice(cut).join('\n').trim() };
+}
+const linkify = t => esc(t).replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]])/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+const paras = t => t.split(/\n{2,}/).filter(x => x.trim()).map(p => `<p>${linkify(p).replace(/\n/g, '<br>')}</p>`).join('');
+function renderMailView(full) {
+  const { fresh, quoted } = splitQuoted(full.text || '');
+  const q = quoted.replace(/<\s*\n\s*([^\s<>]+@[^\s<>]+>)/g, '<$1').split('\n').map(l => l.replace(/^(>\s?)+/, '')).join('\n').replace(/\n{3,}/g, '\n\n');
+  const when = full.date ? new Date(full.date).toLocaleString('nl-NL', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const from = full.from ? [full.from.name, full.from.address ? `<${full.from.address}>` : ''].filter(Boolean).join(' ') : '';
+  const replyTo = full.replyTo && full.replyTo[0] && full.replyTo[0].address !== (full.from && full.from.address) ? full.replyTo[0].address : '';
+  $('mailView').innerHTML = `
+    <div class="mv-head">
+      <div class="mv-subj">${esc(full.subject || '(geen onderwerp)')}</div>
+      <dl class="mv-meta">
+        <dt>Van</dt><dd>${esc(from)}</dd>
+        ${replyTo ? `<dt>Antwoord naar</dt><dd>${esc(replyTo)}</dd>` : ''}
+        ${when ? `<dt>Datum</dt><dd>${esc(when)}</dd>` : ''}
+        ${full.attachments && full.attachments.length ? `<dt>Bijlagen</dt><dd>📎 ${esc(full.attachments.join(', '))}</dd>` : ''}
+      </dl>
+      <div class="mv-tools"><button class="btn" type="button" id="mvEdit">Tekst bewerken</button></div>
+    </div>
+    <div class="mv-body">${paras(fresh) || '<p class="note">(geen tekst)</p>'}
+      ${q ? `<details><summary>Eerdere berichten tonen</summary><div class="mv-quote">${linkify(q).replace(/^(op .{3,120}(schreef|geschreven).*|on .{3,120}wrote.*)$/gim, '<span class="mv-intro">$1</span>')}</div></details>` : ''}
+    </div>`;
+  $('mailView').hidden = false; $('email').hidden = true;
+  $('mvEdit').addEventListener('click', () => { $('mailView').hidden = true; $('email').hidden = false; $('email').focus(); });
+}
+function hideMailView() { $('mailView').hidden = true; $('mailView').innerHTML = ''; $('email').hidden = false; }
 $('inboxList').addEventListener('click', async e => {
   const mk = e.target.closest('[data-mk]');
   if (mk) { e.stopPropagation(); const uid = +mk.dataset.mk; markHandled(uid, handled[uid] ? null : 'behandeld'); return; }
@@ -1674,6 +1742,7 @@ $('inboxList').addEventListener('click', async e => {
   setStatus(st, 'Mail openen…');
   try {
     const { message: full } = await window.mailApi('get', { uid: m.uid });
+    endNewMail(); renderMailView(full);
     $('email').value = `Van: ${fromLabel(full.from)}\nOnderwerp: ${full.subject || ''}\n\n${full.text}` +
       (full.attachments && full.attachments.length ? `\n\n(Bijlagen: ${full.attachments.join(', ')})` : '');
     $('note').value = ''; $('reply').value = ''; convo = null; $('checks').hidden = true; showContext(null);
@@ -1687,6 +1756,14 @@ $('inboxList').addEventListener('click', async e => {
 // Antwoord als concept in de mailbox zetten (map Concepten), als antwoord op de oorspronkelijke mail
 $('draftBtn').addEventListener('click', async () => {
   const text = $('reply').value.trim(), st = $('genStatus');
+  if (newMail && text) {
+    setStatus(st, 'Concept opslaan in je mailbox…');
+    try {
+      const r = await window.mailApi('newdraft', { to: newMail.to, toName: newMail.name, subject: ($('nmSubject') && $('nmSubject').value.trim()) || 'Bericht van Adviesdrogisterij.nl', text, signatureHtml: mailSig, signatureText: sigToText(mailSig) });
+      setStatus(st, `Concept "${r.subject}" staat klaar in de map "${r.folder}" (aan ${r.to}). Open je mailprogramma om het te verzenden.`);
+    } catch (e) { setStatus(st, 'Concept opslaan mislukt: ' + e.message, true); }
+    return;
+  }
   if (!currentMsg || !text) return;
   const n = renderChecks();
   if (n && !confirm(`Er ${n === 1 ? 'staat nog 1 controlepunt' : 'staan nog ' + n + ' controlepunten'} open. Toch als concept in je mailbox zetten?`)) return;
@@ -1703,7 +1780,7 @@ renderMail(); if (mailOn()) loadInbox();
 // ---------- Bestelling opzoeken in het webshopbeheer (via de eigen Chrome-extensie) ----------
 // De extensie leest alleen in het geopende beheer (adviesdrogisterij.nl/App) met de eigen login; er staat nergens een wachtwoord.
 const hasBridge = () => document.documentElement.dataset.adsBridge === '1';
-$('orderWrap').hidden = !hasBridge();
+$('searchCard').hidden = !hasBridge();
 function askExtension(email, orders) {
   return new Promise(ok => {
     const id = Math.random().toString(36).slice(2);
@@ -1768,6 +1845,11 @@ const SHOP_HEAD = '— Info uit de webshop (automatisch toegevoegd door de app) 
 // Veld uit de bestelling op label zoeken
 const pick = (o, re, not) => { const k = Object.keys(o).find(x => re.test(x.trim()) && !(not && not.test(x))); return k ? String(o[k]).trim() : ''; };
 const yesNo = v => /^(1|true|ja|yes)$/i.test(String(v)) ? 'ja' : (v === '' ? '' : 'nee');
+// Klikbare PostNL-link (code + land + postcode; zonder postcode alleen de code)
+function ttLink(code, land, postcode) {
+  const c = String(code).trim().replace(/\s+/g, ''), l = (String(land || 'NL').trim().slice(0, 2) || 'NL').toUpperCase(), pc = String(postcode || '').replace(/\s+/g, '').toUpperCase();
+  return 'https://jouw.postnl.nl/track-and-trace/' + encodeURIComponent(pc ? `${c}-${l}-${pc}` : c);
+}
 function orderView(o, i) {
   const nr = pick(o, /^ordernummer$/i), status = pick(o, /^status$/i), statusNl = STATUS_NL[status.toLowerCase()] || status;
   const naam = [pick(o, /voornaam/i), pick(o, /achternaam/i)].filter(Boolean).join(' '), bedrijf = pick(o, /bedrijfsnaam/i);
@@ -1784,12 +1866,12 @@ function orderView(o, i) {
   return `<div class="ord">
     <dl class="ogrid">
       ${row('Ordernummer', esc(nr))}${row('Status', esc(statusNl))}
-      ${row('Naam', esc(bedrijf ? bedrijf + (naam ? ' · ' + naam : '') : naam) + adres.map(a => `<span class="sub">${esc(a)}</span>`).join(''))}${row('Track & trace', esc(tt) || '<span class="sub">nog niet bekend</span>')}
+      ${row('Naam', esc(bedrijf ? bedrijf + (naam ? ' · ' + naam : '') : naam) + adres.map(a => `<span class="sub">${esc(a)}</span>`).join('') + (o._email ? `<span class="sub">${esc(o._email)}</span>` : ''))}${row('Track & trace', tt ? `<a href="${esc(ttLink(tt, land, pick(o, /afleverpostcode/i)))}" target="_blank" rel="noopener noreferrer">${esc(tt)} ↗</a>` : '<span class="sub">nog niet bekend</span>')}
       ${row('Orderbedrag', esc(euro(bedrag)) + (vk && vk !== '0.00' ? `<span class="sub">incl. ${esc(euro(vk))} verzendkosten</span>` : '') + (betaal ? `<span class="sub">${esc(betaal)}</span>` : ''))}${row('Verwerkt op bestellijst', yesNo(verwerkt), yesNo(verwerkt) === 'ja' ? 'yes' : 'no')}
       ${row('Opmerking', esc(opm), 'wide')}
       ${row('Interne opmerking', esc(intern), 'wide')}
     </dl>
-    <div class="actions"><button class="btn" type="button" data-take="${i}" style="padding:4px 12px;font-size:13px">Overnemen in notitie</button></div>
+    <div class="actions"><button class="btn" type="button" data-take="${i}" style="padding:4px 12px;font-size:13px">Overnemen in notitie</button>${o._email && mailOn() ? `<button class="btn" type="button" data-new="${i}" style="padding:4px 12px;font-size:13px">✉️ Nieuwe mail aan deze klant</button>` : ''}</div>
   </div>`;
 }
 function showOrders() {
@@ -1799,15 +1881,46 @@ function showOrders() {
   box.innerHTML = '<b>Gevonden in de Webshop</b>' + foundRaw.map(orderView).join('');
 }
 $('orderBox').addEventListener('click', e => {
+  if (e.target.dataset.new !== undefined) { startNewMail(+e.target.dataset.new); return; }
   const i = e.target.dataset.take; if (i === undefined) return;
   const note = $('note'), t = SHOP_HEAD + '\n' + foundOrders[+i];
   if (!note.value.includes(foundOrders[+i])) note.value = (note.value.trim() ? note.value.trim() + '\n\n' : '') + t;
   e.target.textContent = '✓ Overgenomen'; e.target.disabled = true;
 });
-async function findOrder(auto) {
+// ---------- Nieuwe mail aan een klant (geen antwoord), vanuit een gevonden bestelling ----------
+function startNewMail(i) {
+  const o = foundRaw[i]; if (!o || !o._email) return;
+  const name = [pick(o, /voornaam/i), pick(o, /achternaam/i)].filter(Boolean).join(' '), nr = pick(o, /^ordernummer$/i);
+  newMail = { to: o._email, name, summary: foundOrders[i] };
+  currentMsg = null; convo = null; $('reply').value = ''; $('checks').hidden = true; hideMailView(); $('email').value = '';
+  document.querySelectorAll('.mail.sel').forEach(x => x.classList.remove('sel'));
+  $('email').hidden = true; $('emailLabel').hidden = true; $('mailCardTitle').textContent = 'Nieuwe mail aan klant';
+  $('newMailBox').hidden = false;
+  $('newMailBox').innerHTML = `<b>Aan:</b> ${esc(name ? name + ' <' + o._email + '>' : o._email)}
+    <div class="row"><label for="nmSubject" style="margin:0;flex:0 0 auto">Onderwerp</label><input id="nmSubject" value="${esc(nr ? 'Uw bestelling #' + nr : 'Bericht van Adviesdrogisterij.nl')}"></div>
+    <div class="actions" style="margin-top:8px"><button class="btn" type="button" id="nmCancel" style="padding:4px 12px;font-size:13px">Annuleren</button></div>`;
+  $('nmCancel').addEventListener('click', endNewMail);
+  $('noteLabel').textContent = 'Wat wil je de klant laten weten?';
+  $('note').placeholder = 'Bijv.: een artikel is niet leverbaar; we leveren de rest nu en storten € 8 terug.';
+  const t = SHOP_HEAD + '\n' + newMail.summary;
+  $('note').value = t; renderMail();
+  $('note').focus(); $('note').setSelectionRange(0, 0);
+  setStatus($('genStatus'), 'Typ bovenaan in het notitieveld wat je de klant wilt laten weten en klik op "Antwoord maken".');
+}
+function endNewMail() {
+  if (!newMail) return;
+  newMail = null; $('newMailBox').hidden = true; $('newMailBox').innerHTML = ''; $('email').hidden = false; $('emailLabel').hidden = false;
+  $('mailCardTitle').textContent = 'Mail van de klant';
+  $('noteLabel').textContent = 'Jouw notitie voor het antwoord (optioneel)';
+  $('note').placeholder = 'Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123.';
+  renderMail();
+}
+async function findOrder(auto, query) {
   if (!hasBridge()) return;
-  const st = $('orderStatus'), { email, orders } = mailFacts();
-  if (!email && !orders.length) { if (!auto) setStatus(st, 'Geen mailadres of ordernummer gevonden in de mail.', true); return; }
+  let { email, orders } = query ? { email: '', orders: [] } : mailFacts();
+  if (query) { const q = query.trim(); if (/@/.test(q)) email = q; else orders = [...new Set(q.match(/\d{4,8}/g) || [])].slice(0, 5); }
+  const st = $('orderStatus');
+  if (!email && !orders.length) { if (!auto) setStatus(st, query ? 'Vul een ordernummer of een geldig e-mailadres in.' : 'Typ een ordernummer of e-mailadres in de zoekbalk, of open een klantmail.', true); return; }
   setStatus(st, 'Zoeken in je webshopbeheer…'); foundOrders = []; foundRaw = []; showOrders();
   const r = await askExtension(email, orders);
   if (r.error) { setStatus(st, r.error, true); return; }
@@ -1815,7 +1928,8 @@ async function findOrder(auto) {
   foundRaw = r.orders; foundOrders = r.orders.map(orderSummary); showOrders();
   setStatus(st, `${r.orders.length} bestelling${r.orders.length === 1 ? '' : 'en'} gevonden. Klik op "Overnemen in notitie" om het aan de AI mee te geven.`);
 }
-$('orderBtn').addEventListener('click', () => findOrder(false));
+$('orderSearch').addEventListener('click', () => { const q = $('orderQuery').value.trim(); findOrder(false, q || null); });
+$('orderQuery').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('orderSearch').click(); } });
 
 // ---------- Tegoed en kosten (live via de functie "mail") ----------
 const credit = () => settings.credit || (settings.credit = {});
