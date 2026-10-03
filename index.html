@@ -480,7 +480,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.21.4';
+const APP_VERSION = '1.21.5';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1896,7 +1896,11 @@ $('orderBox').addEventListener('click', e => {
   if (nb) { startNewMail(+nb.dataset.new); return; }
   const i = e.target.dataset.take; if (i === undefined) return;
   const note = $('note'), t = SHOP_HEAD + '\n' + foundOrders[+i];
-  if (!note.value.includes(foundOrders[+i])) note.value = (note.value.trim() ? note.value.trim() + '\n\n' : '') + t;
+  if (!note.value.includes(foundOrders[+i])) {
+    const own = note.value.trim();
+    note.value = own ? own + '\n\n' + t : '\n\n\n' + t; // leeg: schrijfruimte bovenaan voor je eigen notitie
+    note.focus(); note.setSelectionRange(own ? own.length : 0, own ? own.length : 0); note.scrollTop = 0;
+  }
   e.target.textContent = '✓ Overgenomen'; e.target.disabled = true;
 });
 // ---------- Nieuwe mail aan een klant (geen antwoord), vanuit een gevonden bestelling ----------
