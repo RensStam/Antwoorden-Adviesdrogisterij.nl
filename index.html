@@ -231,9 +231,8 @@ body.locked > header, body.locked > main { display: none; }
       <div class="card">
         <h2 id="mailCardTitle">Mail van de klant</h2>
         <div class="newmail" id="newMailBox" hidden></div>
-        <label for="email" id="emailLabel">Plak hier de e-mail (inclusief eerdere berichten als dat helpt)</label>
         <div class="mailview" id="mailView" hidden></div>
-        <textarea id="email" placeholder="Beste Adviesdrogisterij, ik heb vorige week besteld maar…"></textarea>
+        <textarea id="email" aria-label="Mail van de klant" placeholder="Plak hier de mail van de klant, of klik hierboven op een mail in de inbox."></textarea>
         <label for="note" id="noteLabel">Jouw notitie voor het antwoord (optioneel)</label>
         <textarea id="note" placeholder="Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123."></textarea>
         <div class="row" style="margin-top:4px">
@@ -481,7 +480,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.21.2';
+const APP_VERSION = '1.21.3';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1907,7 +1906,7 @@ function startNewMail(i) {
   newMail = { to: o._email, name, summary: foundOrders[i] };
   currentMsg = null; convo = null; $('reply').value = ''; $('checks').hidden = true; hideMailView(); $('email').value = '';
   document.querySelectorAll('.mail.sel').forEach(x => x.classList.remove('sel'));
-  $('email').hidden = true; $('emailLabel').hidden = true; $('mailCardTitle').textContent = 'Nieuwe mail aan klant';
+  $('email').hidden = true; $('mailCardTitle').textContent = 'Nieuwe mail aan klant';
   $('newMailBox').hidden = false;
   $('newMailBox').innerHTML = `<b>Aan:</b> ${esc(name ? name + ' <' + o._email + '>' : o._email)}
     <div class="row"><label for="nmSubject" style="margin:0;flex:0 0 auto">Onderwerp</label><input id="nmSubject" value="${esc(nr ? 'Uw bestelling #' + nr : 'Bericht van Adviesdrogisterij.nl')}"></div>
@@ -1933,7 +1932,7 @@ function fitNote() {
 window.addEventListener('resize', () => { if (newMail) fitNote(); });
 function endNewMail() {
   if (!newMail) return;
-  newMail = null; $('newMailBox').hidden = true; $('newMailBox').innerHTML = ''; $('email').hidden = false; $('emailLabel').hidden = false;
+  newMail = null; $('newMailBox').hidden = true; $('newMailBox').innerHTML = ''; $('email').hidden = false;
   $('mailCardTitle').textContent = 'Mail van de klant';
   $('noteLabel').textContent = 'Jouw notitie voor het antwoord (optioneel)'; $('note').classList.remove('big'); $('note').style.height = '';
   $('note').placeholder = 'Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123.';
