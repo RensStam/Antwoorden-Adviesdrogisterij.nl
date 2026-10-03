@@ -101,7 +101,14 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; }
 .empty { color: var(--muted); font-size: 14px; }
 .orderbox { margin: 0 0 16px; border: 1px solid var(--line); border-left: 4px solid var(--brand-blue); border-radius: 10px; padding: 12px 16px; background: var(--panel); font-size: 14px; }
-.orderbox .ord + .ord { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.orderbox .ord + .ord { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.orderbox .ogrid { display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 4px 14px; margin-top: 6px; }
+.orderbox .ogrid dt { color: var(--muted); }
+.orderbox .ogrid dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.orderbox .ogrid .wide { grid-column: 2 / -1; }
+.orderbox .sub { display: block; font-weight: 400; color: var(--muted); }
+.orderbox .yes { color: var(--accent); } .orderbox .no { color: var(--warn); }
+@media (max-width: 700px) { .orderbox .ogrid { grid-template-columns: max-content 1fr; } .orderbox .ogrid .wide { grid-column: 2; } }
 .orderbox .actions { margin-top: 8px; }
 .checks { margin-top: 12px; border-radius: 8px; padding: 10px 12px; background: var(--warn-soft); color: var(--warn); font-size: 14px; }
 .checks.ok { background: var(--accent-soft); color: var(--accent); }
@@ -452,7 +459,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.17.1';
+const APP_VERSION = '1.18.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1555,7 +1562,7 @@ $('checks').addEventListener('click', e => {
   refine(`Verbeter het antwoord volgens de huisregels: ${fix.join('; ')}. Verwijder verboden woorden en herschrijf zinnen zonder streepjes (-, –, —). Laat de rest van de inhoud gelijk.`);
 });
 $('clearBtn').addEventListener('click', () => {
-  $('email').value = $('note').value = $('reply').value = ''; convo = null; currentMsg = null; foundOrders = []; showOrders();
+  $('email').value = $('note').value = $('reply').value = ''; convo = null; currentMsg = null; foundOrders = []; foundRaw = []; showOrders();
   showContext(null); $('checks').hidden = true; setStatus($('genStatus'), ''); renderMail();
   document.querySelectorAll('.mail.sel').forEach(x => x.classList.remove('sel'));
 });
@@ -1749,16 +1756,45 @@ function orderSummary(o) {
     factuur ? `Factuurnummer: ${factuur}.` : '',
     get(/gecrediteerd/i) ? 'Deze bestelling is gecrediteerd.' : '',
     get(/avondbezorging/i) ? 'Avondbezorging.' : '',
+    pick(o, /opmerking/i, /intern/i) ? `Opmerking van de klant: ${pick(o, /opmerking/i, /intern/i)}.` : '',
+    pick(o, /intern.*opmerking|opmerking.*intern/i) ? `Interne opmerking: ${pick(o, /intern.*opmerking|opmerking.*intern/i)}.` : '',
+    /^(1|true|ja)$/i.test(pick(o, /verwerkt op bestellijst/i)) ? 'Verwerkt op de bestellijst.' : '',
   ];
   return parts.filter(Boolean).join(' ');
 }
-let foundOrders = [];
+let foundOrders = [], foundRaw = [];
+// Veld uit de bestelling op label zoeken
+const pick = (o, re, not) => { const k = Object.keys(o).find(x => re.test(x.trim()) && !(not && not.test(x))); return k ? String(o[k]).trim() : ''; };
+const yesNo = v => /^(1|true|ja|yes)$/i.test(String(v)) ? 'ja' : (v === '' ? '' : 'nee');
+function orderView(o, i) {
+  const nr = pick(o, /^ordernummer$/i), status = pick(o, /^status$/i), statusNl = STATUS_NL[status.toLowerCase()] || status;
+  const naam = [pick(o, /voornaam/i), pick(o, /achternaam/i)].filter(Boolean).join(' '), bedrijf = pick(o, /bedrijfsnaam/i);
+  const straat = pick(o, /afleverstraat/i), huisnr = [pick(o, /^aflevernummer$/i), pick(o, /toevoegsel/i)].filter(Boolean).join('-');
+  const regel1 = straat ? [straat, huisnr].filter(Boolean).join(' ') : pick(o, /^afleveradres$/i);
+  const regel2 = [pick(o, /afleverpostcode/i), pick(o, /afleverplaats/i)].filter(Boolean).join(' ');
+  const land = pick(o, /^afleverland$/i);
+  const adres = [regel1, [regel2, land].filter(Boolean).join(', ')].filter(Boolean);
+  const tt = pick(o, /track/i), bedrag = pick(o, /bedrag incl|^bedrag$|^totaal/i), vk = pick(o, /^verzendkosten$/i), betaal = pick(o, /^betaalmethode$/i);
+  const opm = pick(o, /opmerking/i, /intern/i), intern = pick(o, /intern.*opmerking|opmerking.*intern/i);
+  const verwerkt = pick(o, /verwerkt op bestellijst/i);
+  const euro = v => v ? '€ ' + String(v).replace('.', ',') : '';
+  const row = (k, v, cls = '') => `<dt>${k}</dt><dd class="${cls}">${v || '<span class="sub">–</span>'}</dd>`;
+  return `<div class="ord">
+    <dl class="ogrid">
+      ${row('Ordernummer', esc(nr))}${row('Status', esc(statusNl))}
+      ${row('Naam', esc(bedrijf ? bedrijf + (naam ? ' · ' + naam : '') : naam) + adres.map(a => `<span class="sub">${esc(a)}</span>`).join(''))}${row('Track & trace', esc(tt) || '<span class="sub">nog niet bekend</span>')}
+      ${row('Orderbedrag', esc(euro(bedrag)) + (vk && vk !== '0.00' ? `<span class="sub">incl. ${esc(euro(vk))} verzendkosten</span>` : '') + (betaal ? `<span class="sub">${esc(betaal)}</span>` : ''))}${row('Verwerkt op bestellijst', yesNo(verwerkt), yesNo(verwerkt) === 'ja' ? 'yes' : 'no')}
+      ${row('Opmerking', esc(opm), 'wide')}
+      ${row('Interne opmerking', esc(intern), 'wide')}
+    </dl>
+    <div class="actions"><button class="btn" type="button" data-take="${i}" style="padding:4px 12px;font-size:13px">Overnemen in notitie</button></div>
+  </div>`;
+}
 function showOrders() {
   const box = $('orderBox');
-  box.hidden = !foundOrders.length;
-  if (!foundOrders.length) return;
-  box.innerHTML = '<b>Gevonden in je webshop</b>' + foundOrders.map((t, i) => `
-    <div class="ord">${esc(t)} <button class="btn" type="button" data-take="${i}" style="padding:3px 10px;font-size:13px;margin-left:4px">Overnemen in notitie</button></div>`).join('');
+  box.hidden = !foundRaw.length;
+  if (!foundRaw.length) return;
+  box.innerHTML = '<b>Gevonden in je webshop</b>' + foundRaw.map(orderView).join('');
 }
 $('orderBox').addEventListener('click', e => {
   const i = e.target.dataset.take; if (i === undefined) return;
@@ -1770,11 +1806,11 @@ async function findOrder(auto) {
   if (!hasBridge()) return;
   const st = $('orderStatus'), { email, orders } = mailFacts();
   if (!email && !orders.length) { if (!auto) setStatus(st, 'Geen mailadres of ordernummer gevonden in de mail.', true); return; }
-  setStatus(st, 'Zoeken in je webshopbeheer…'); foundOrders = []; showOrders();
+  setStatus(st, 'Zoeken in je webshopbeheer…'); foundOrders = []; foundRaw = []; showOrders();
   const r = await askExtension(email, orders);
   if (r.error) { setStatus(st, r.error, true); return; }
   if (!r.orders || !r.orders.length) { setStatus(st, `Geen bestelling gevonden${orders.length ? ' voor ' + orders.join(', ') : ''}${email ? (orders.length ? ' of ' : ' voor ') + email : ''} in je geopende beheer${r.info ? ' (' + r.info + ')' : ''}. Staat de bestelling in de geladen lijst Beheer orders?`); return; }
-  foundOrders = r.orders.map(orderSummary); showOrders();
+  foundRaw = r.orders; foundOrders = r.orders.map(orderSummary); showOrders();
   setStatus(st, `${r.orders.length} bestelling${r.orders.length === 1 ? '' : 'en'} gevonden. Klik op "Overnemen in notitie" om het aan de AI mee te geven.`);
 }
 $('orderBtn').addEventListener('click', () => findOrder(false));

@@ -36,8 +36,8 @@ function lookupInExt(email, orders) {
   const fmt = (v) => v instanceof Date ? v.toLocaleString('nl-NL') : (v === null || v === undefined ? '' : String(v));
   const wantEmail = String(email || '').trim().toLowerCase();
   const wantOrders = new Set((orders || []).map((o) => String(o).trim()).filter(Boolean));
-  // Velden die de AI niet nodig heeft (staat al in de mail) of die gevoelig/intern zijn
-  const skip = /e-?mail|telefoon|voornaam|achternaam|wachtwoord|password|sessie|session|\bip\b|iban|hash|token|^id$|_id$/i;
+  // Gevoelige of interne velden worden nooit doorgegeven (naam en adres wel, voor het overzicht in de app)
+  const skip = /e-?mail|telefoon|wachtwoord|password|sessie|session|\bip\b|iban|hash|token|referentie|transactiecode|^id$|_id$/i;
   // Lijsten verzamelen: tabellen (met kolomnamen) en losse stores
   const lists = new Map(); // store -> kolommen [{label, key}]
   Ext.ComponentMgr.all.each((c) => {
