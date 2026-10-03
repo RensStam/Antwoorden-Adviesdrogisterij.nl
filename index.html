@@ -356,13 +356,13 @@ body.locked > header, body.locked > main { display: none; }
         <input id="apiKey" type="password" autocomplete="off" placeholder="Niet nodig voor Ollama">
         <label for="model">Model</label>
         <div class="row">
-          <input id="model" list="modelList" style="flex:3 1 200px">
+          <input id="model" list="modelList" autocomplete="off" spellcheck="false" style="flex:3 1 200px">
           <button class="btn" id="fetchModels" style="flex:0 0 auto">Modellen ophalen</button>
         </div>
         <datalist id="modelList"></datalist>
         <select id="modelSelect" hidden style="margin-top:8px"></select>
         <label for="cheapModel">Zuinig model voor eenvoudige mails (leeg = automatisch)</label>
-        <input id="cheapModel" list="modelList" placeholder="bijv. gpt-5.4-mini">
+        <input id="cheapModel" list="modelList" placeholder="bijv. gpt-5.4-mini" autocomplete="off" spellcheck="false">
         <p class="note" id="usageNote"></p>
         <label for="temp">Creativiteit (temperatuur): <span id="tempVal"></span></label>
         <input id="temp" type="range" min="0" max="1" step="0.05">
@@ -425,7 +425,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.12.0';
+const APP_VERSION = '1.12.2';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -887,7 +887,12 @@ $('provider').addEventListener('change', e => {
   settings.model = p.model;
   saveSettings();
 });
-['baseUrl', 'apiKey', 'model', 'cheapModel'].forEach(id => $(id).addEventListener('change', e => { settings[id] = e.target.value.trim(); saveSettings(); }));
+['baseUrl', 'apiKey', 'model', 'cheapModel'].forEach(id => $(id).addEventListener('change', e => {
+  let v = e.target.value.trim();
+  if (id === 'cheapModel' && v && !/^[\w.:-]+$/.test(v.replace(/:/g, ''))) { v = ''; e.target.value = ''; setStatus($('setStatus'), 'Bij "Zuinig model" hoort een modelnaam (bijv. gpt-5.4-mini), geen adres. Leeg = automatisch.', true); }
+  if (id === 'cheapModel' && /:\/\//.test(v)) { v = ''; e.target.value = ''; }
+  settings[id] = v; saveSettings();
+}));
 $('temp').addEventListener('input', e => { settings.temp = +e.target.value; $('tempVal').textContent = settings.temp; store.set('settings', settings); });
 $('mask').addEventListener('change', e => { settings.mask = e.target.checked; saveSettings(); });
 
@@ -914,7 +919,14 @@ $('fetchModels').addEventListener('click', async () => {
     const sel = $('modelSelect');
     sel.innerHTML = `<option value="">Kies een model uit de lijst (${ids.length})…</option>` + ids.map(m => `<option value="${esc(m)}"${m === settings.model ? ' selected' : ''}>${esc(m)}${m === best ? '  ★ aanbevolen' : ''}</option>`).join('');
     sel.hidden = false;
-    setStatus(st, `${ids.length} modellen gevonden. Kies er een in de keuzelijst.` + (best ? ` Aanbevolen: ${best} (het nieuwste topmodel; dit komt het dichtst bij ChatGPT).` : ''));
+    // Zuinig model: een mini-model dat bij deze sleutel echt bestaat (bij voorkeur "<model>-mini", anders het nieuwste)
+    let cheapMsg = '';
+    if (settings.provider === 'openai' && !ids.includes(cheapModel())) {
+      const mini = ids.includes(settings.model + '-mini') ? settings.model + '-mini' : ids.find(m => /^gpt-\d+(\.\d+)?-mini$/.test(m));
+      settings.cheapModel = mini || ''; saveSettings();
+      cheapMsg = mini ? ` Zuinig model: ${mini}.` : ' Geen zuinig mini-model gevonden voor deze sleutel.';
+    }
+    setStatus(st, `${ids.length} modellen gevonden. Kies er een in de keuzelijst.` + (best ? ` Aanbevolen: ${best} (het nieuwste topmodel; dit komt het dichtst bij ChatGPT).` : '') + cheapMsg);
   } catch (e) { setStatus(st, 'Mislukt: ' + friendlyError(e), true); }
 });
 
@@ -1290,7 +1302,8 @@ ${signature}` : '- Sluit het antwoord af zonder groet en zonder naam: de handtek
 }
 
 // Zuinig model (mini) voor eenvoudige mails: zelf in te stellen, of automatisch "<model>-mini" bij OpenAI
-const cheapModel = () => settings.cheapModel || (settings.provider === 'openai' && /^gpt-\d+(\.\d+)?$/.test(settings.model) ? settings.model + '-mini' : '');
+const validModel = m => !!m && !/[\s\/:]/.test(m) && !/^https?/i.test(m);
+const cheapModel = () => (validModel(settings.cheapModel) ? settings.cheapModel : '') || (settings.provider === 'openai' && /^gpt-\d+(\.\d+)?$/.test(settings.model) ? settings.model + '-mini' : '');
 let convoModel = null;
 const nl = n => Number(n || 0).toLocaleString('nl-NL');
 function trackUsage(u) {
@@ -1316,7 +1329,9 @@ async function run(messages, model = convoModel || settings.model) {
     setStatus(st, (n ? `Klaar. Let op de ${n === 1 ? 'controlepunt' : n + ' controlepunten'} hieronder.` : 'Klaar. Lees het na en pas aan waar nodig.') + cost);
     saveHistory(text);
   } catch (e) {
-    setStatus(st, 'Er ging iets mis: ' + friendlyError(e), true);
+    const cheapHelp = model !== settings.model && e.name !== 'AbortError'
+      ? ` (Het zuinige model "${model}" werkt niet met je sleutel. Ga naar Instellingen en klik op "Modellen ophalen": dan kiest de app vanzelf een zuinig model dat wel werkt. Of vink Zuinig uit.)` : '';
+    setStatus(st, 'Er ging iets mis: ' + friendlyError(e) + cheapHelp, true);
     if (text) convo = [...messages, { role: 'assistant', content: text }];
   } finally {
     $('genBtn').disabled = $('refineBtn').disabled = false; $('stopBtn').hidden = true; controller = null;
