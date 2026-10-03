@@ -481,7 +481,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.21.1';
+const APP_VERSION = '1.21.2';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1916,16 +1916,26 @@ function startNewMail(i) {
   $('noteLabel').textContent = 'Wat wil je de klant laten weten?';
   $('note').placeholder = 'Bijv.: een artikel is niet leverbaar; we leveren de rest nu en storten € 8 terug.';
   const t = SHOP_HEAD + '\n' + newMail.summary;
-  $('note').classList.add('big'); $('note').value = '\n\n\n' + t; renderMail();
+  $('note').classList.add('big'); $('note').value = '\n\n\n' + t; renderMail(); fitNote();
   $('mailCardTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
   $('note').focus({ preventScroll: true }); $('note').setSelectionRange(0, 0);
   setStatus($('genStatus'), 'Typ bovenaan in het notitieveld wat je de klant wilt laten weten en klik op "Antwoord maken".');
 }
+// Bij een nieuwe mail loopt het notitieveld door tot de onderkant van 'Laat het aanpassen' (naast elkaar)
+function fitNote() {
+  const n = $('note'), f = $('refine');
+  if (!newMail) return;
+  n.style.height = '';
+  const a = n.getBoundingClientRect(), b = f.getBoundingClientRect();
+  if (b.left < a.right || b.bottom <= a.top) return; // onder elkaar (smal scherm): standaardhoogte
+  n.style.height = Math.max(460, Math.round(b.bottom - a.top)) + 'px';
+}
+window.addEventListener('resize', () => { if (newMail) fitNote(); });
 function endNewMail() {
   if (!newMail) return;
   newMail = null; $('newMailBox').hidden = true; $('newMailBox').innerHTML = ''; $('email').hidden = false; $('emailLabel').hidden = false;
   $('mailCardTitle').textContent = 'Mail van de klant';
-  $('noteLabel').textContent = 'Jouw notitie voor het antwoord (optioneel)'; $('note').classList.remove('big');
+  $('noteLabel').textContent = 'Jouw notitie voor het antwoord (optioneel)'; $('note').classList.remove('big'); $('note').style.height = '';
   $('note').placeholder = 'Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123.';
   renderMail();
 }
