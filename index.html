@@ -132,6 +132,9 @@ pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); bord
 .orderbox .oline .btn { flex: 0 0 auto; padding: 3px 10px; font-size: 12px; }
 .checks { margin-top: 12px; border-radius: 8px; padding: 10px 12px; background: var(--warn-soft); color: var(--warn); font-size: 14px; }
 .checks.ok { background: var(--accent-soft); color: var(--accent); }
+.usagebar { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+.usagebar .chip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; background: var(--panel); color: var(--text); }
+.usagebar .chip b { font-weight: 700; } .usagebar .good { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); } .usagebar .low { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
 .checks ul { margin: 4px 0 0; padding-left: 18px; }
 .checks .actions { margin-top: 8px; }
 .inbox { max-height: 260px; overflow: auto; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; }
@@ -282,6 +285,7 @@ body.locked > header, body.locked > main { display: none; }
           <button class="btn" id="stopBtn" hidden>Stoppen</button>
         </div>
         <div class="checks" id="checks" hidden></div>
+        <div class="usagebar" id="usageBar" hidden></div>
         <label for="refine" style="margin-top:14px">Laat het aanpassen <span style="font-size:12px">(Enter = versturen, Shift + Enter = nieuwe regel)</span></label>
         <textarea id="refine" placeholder="Bijv.: noem ook de kortingscode ZORG10 en zeg dat de bestelling morgen wordt verzonden." style="min-height:110px"></textarea>
         <div class="actions" style="margin-top:8px;align-items:center">
@@ -487,8 +491,8 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.27.3';       // technisch nummer (voor de updatecontrole)
-const APP_DATE = '2026-10-05 20:58'; // wanneer deze versie online kwam (dit ziet de gebruiker)
+const APP_VERSION = '1.27.4';       // technisch nummer (voor de updatecontrole)
+const APP_DATE = '2026-10-05 21:13'; // wanneer deze versie online kwam (dit ziet de gebruiker)
 const fmtAppDate = d => { const t = new Date(d.replace(' ', 'T')); return isNaN(t) ? d : t.toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'bijgewerkt ' + fmtAppDate(APP_DATE); el.title = 'Versie ' + APP_VERSION; });
 
@@ -1374,13 +1378,24 @@ const validModel = m => !!m && !/[\s\/:]/.test(m) && !/^https?/i.test(m);
 const cheapModel = () => (validModel(settings.cheapModel) ? settings.cheapModel : '') || (settings.provider === 'openai' && /^gpt-\d+(\.\d+)?$/.test(settings.model) ? settings.model + '-mini' : '');
 let convoModel = null;
 const nl = n => Number(n || 0).toLocaleString('nl-NL');
+// Verbruik van het laatste antwoord duidelijk onder het concept tonen
+function showUsage(u, model) {
+  const bar = $('usageBar');
+  if (!u) { bar.hidden = true; return; }
+  const pct = u.in ? Math.round(100 * u.cached / u.in) : 0;
+  bar.innerHTML = `<span>Verbruik dit antwoord:</span>
+    <span class="chip" title="Tekst die naar de AI ging: instructies, kennisbank en de mail">📥 <b>${nl(u.in)}</b> tokens in</span>
+    <span class="chip ${pct >= 60 ? 'good' : 'low'}" title="Dit deel had OpenAI nog onthouden en kost ongeveer 10% van de normale prijs. Na een wijziging in instructies of kennisbank is dit één keer laag.">⚡ <b>${pct}%</b> goedkoper uit de cache</span>
+    <span class="chip" title="Lengte van het antwoord">📤 <b>${nl(u.out)}</b> tokens uit</span>
+    ${model !== settings.model ? `<span class="chip">🌱 zuinig model (${esc(model)})</span>` : ''}`;
+  bar.hidden = false;
+}
 function trackUsage(u) {
-  if (!u) return '';
+  if (!u) return null;
   const month = new Date().toISOString().slice(0, 7);
   const t = settings.usage && settings.usage.month === month ? settings.usage : (settings.usage = { month, n: 0, in: 0, cached: 0, out: 0 });
   t.n++; t.in += u.in; t.cached += u.cached; t.out += u.out; saveSettings();
-  const pct = u.in ? Math.round(100 * u.cached / u.in) : 0;
-  return ` · ${nl(u.in)} tokens in${u.cached ? ` (${pct}% met korting uit de cache)` : ''}, ${nl(u.out)} uit`;
+  return u;
 }
 async function run(messages, model = convoModel || settings.model) {
   convoModel = model;
@@ -1393,8 +1408,8 @@ async function run(messages, model = convoModel || settings.model) {
     text = text.trim(); out.value = text;
     convo = [...messages, { role: 'assistant', content: text }];
     const n = renderChecks();
-    const cost = trackUsage(usage) + (model !== settings.model ? ` · zuinig model (${model})` : '');
-    setStatus(st, (n ? `Klaar. Let op de ${n === 1 ? 'controlepunt' : n + ' controlepunten'} hieronder.` : 'Klaar. Lees het na en pas aan waar nodig.') + cost);
+    showUsage(trackUsage(usage), model);
+    setStatus(st, n ? `Klaar. Let op de ${n === 1 ? 'controlepunt' : n + ' controlepunten'} hieronder.` : 'Klaar. Lees het na en pas aan waar nodig.');
     saveHistory(text);
   } catch (e) {
     const cheapHelp = model !== settings.model && e.name !== 'AbortError'
@@ -1572,7 +1587,7 @@ $('exClear').addEventListener('click', () => { if (confirm('Alle onthouden voorb
 function showContext(knowledge, nEx = 0) {
   // Alleen tonen als bekend is wat er is meegestuurd (dus na 'Antwoord maken'); anders verbergen
   $('ctxBox').hidden = knowledge === null || knowledge === 'onbekend';
-  if ($('ctxBox').hidden) return;
+  if ($('ctxBox').hidden) { $('usageBar').hidden = true; return; }
   const full = [], frag = new Map();
   for (const m of (knowledge || '').matchAll(/^### (.+?)( \(fragment\))?$/gm)) {
     if (m[2]) frag.set(m[1], (frag.get(m[1]) || 0) + 1); else full.push(m[1]);
