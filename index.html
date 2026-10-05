@@ -487,7 +487,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.25.0';
+const APP_VERSION = '1.26.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1923,7 +1923,7 @@ function orderView(o, i) {
     </dl>
     ${(o._lines || []).length ? `<div class="olines"><div class="olh">Artikelen <span class="sub" style="display:inline">· klik op Overnemen als de mail over dat artikel gaat</span></div>
       ${o._lines.map((l, j) => `<div class="oline"><span>${esc(lineText(l))}</span><button class="btn" type="button" data-line="${i}:${j}">Overnemen</button></div>`).join('')}</div>`
-      : '<div class="olines sub">Artikelen: niet gevonden in het geopende beheer. Open de bestelling in het beheer (orderregels) en zoek opnieuw.</div>'}
+      : '<div class="olines sub">Artikelen: geen orderregels gevonden bij deze bestelling.</div>'}
     <div class="actions"><button class="btn" type="button" data-take="${i}" style="padding:4px 12px;font-size:13px">Overnemen in notitie</button>${o._email ? `<button class="btn" type="button" data-new="${i}" style="padding:4px 12px;font-size:13px">✉️ Nieuwe mail aan deze klant</button>` : ''}</div>
   </div>`;
 }
@@ -2024,7 +2024,7 @@ async function findOrder(auto, query) {
   if ((!r.orders || !r.orders.length) && (r.rows === 0 || /met samen 0 regels/.test(r.info || ''))) {
     setStatus(st, 'MOGELIJK UITGELOGD: het webshopbeheer gaf geen enkele bestelling terug. Log opnieuw in op adviesdrogisterij.nl/App.', true); return;
   }
-  if (!r.orders || !r.orders.length) { setStatus(st, `Geen bestelling gevonden${orders.length ? ' voor ' + orders.join(', ') : ''}${email ? (orders.length ? ' of ' : ' voor ') + email : ''} in je geopende beheer${r.info ? ' (' + r.info + ')' : ''}. Staat de bestelling in de geladen lijst Beheer orders?`); return; }
+  if (!r.orders || !r.orders.length) { setStatus(st, `Geen bestelling gevonden${orders.length ? ' voor ' + orders.join(', ') : ''}${email ? (orders.length ? ' of ' : ' voor ') + email : ''} in je webshop. Controleer het ordernummer of e-mailadres.`); return; }
   foundRaw = r.orders; foundOrders = r.orders.map(orderSummary); showOrders();
   setStatus(st, `${r.orders.length} bestelling${r.orders.length === 1 ? '' : 'en'} gevonden. Klik op "Overnemen in notitie" om het aan de AI mee te geven.`);
 }

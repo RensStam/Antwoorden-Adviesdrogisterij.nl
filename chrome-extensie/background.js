@@ -1,5 +1,8 @@
 // Zoekt in een geopend tabblad met het webshopbeheer (adviesdrogisterij.nl/App) naar bestellingen.
-// Er wordt niets opgeslagen en er gaan geen gegevens naar andere servers: het resultaat gaat alleen terug naar de app.
+// Er gaan geen gegevens naar andere servers: het resultaat gaat alleen terug naar de app. Klantgegevens worden niet opgeslagen;
+// de extensie onthoudt alleen kolomnamen (bijv. 'number' = 'Ordernummer') en welk zoekfilter werkt.
+// Staat de bestelling niet in een geopende lijst, dan vraagt de extensie hem gericht op via het ingelogde beheer zelf:
+// altijd met een filter op dat ene ordernummer of mailadres en maximaal 5 resultaten, nooit een hele lijst.
 const APP_PREFIX = 'https://rensstam.github.io/Antwoorden-Adviesdrogisterij.nl/';
 const ADMIN = /^https:\/\/(www\.)?adviesdrogisterij\.nl\/App/i;
 
@@ -7,7 +10,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg?.type !== 'lookup' || !sender.url || !sender.url.startsWith(APP_PREFIX)) return false;
   (async () => {
     const tabs = (await chrome.tabs.query({})).filter((t) => t.url && ADMIN.test(t.url));
-    if (!tabs.length) return reply({ error: 'Open je webshopbeheer (adviesdrogisterij.nl/App) in Chrome, log in en open Beheer orders.' });
+    if (!tabs.length) return reply({ error: 'Open je webshopbeheer (adviesdrogisterij.nl/App) in Chrome en log in.' });
     // In alle tabbladen met het beheer en in alle frames daarbinnen zoeken (tabbladen in het beheer zijn vaak frames)
     const found = [], seen = new Set(), lineRows = []; let lists = 0, rows = 0, frames = 0, lastError = '';
     for (const tab of tabs) {
@@ -20,10 +23,27 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         frames++; lists += r.lists || 0; rows += r.rows || 0;
         for (const o of r.orders || []) { const k = JSON.stringify({ ...o, _refs: undefined }); if (!seen.has(k)) { seen.add(k); found.push(o); } }
         lineRows.push(...(r.lineRows || []));
+        if (r.labels) await saveLabels(r.labels);
       }
     }
+    // Niet in een geopende lijst? Gericht opvragen via het beheer (alleen deze ene bestelling)
+    const main = tabs[0]; let loggedOut = false;
+    if (!found.length && (msg.email || (msg.orders || []).length)) {
+      const res = await searchOrders(main, msg.email, msg.orders || []);
+      if (res.loggedOut) loggedOut = true;
+      for (const o of res.orders) { const k = JSON.stringify({ ...o, _refs: undefined, _oid: undefined }); if (!seen.has(k)) { seen.add(k); found.push(o); } }
+    }
+    // Artikelen van de gevonden bestellingen die nog niet in het beheer geladen zijn
+    for (const o of found.slice(0, 3)) {
+      const refs = new Set(o._refs || []);
+      if (!o._oid || lineRows.some((lr) => lr.refs.some((v) => refs.has(v)))) continue;
+      const res = await inTab(main, adminSearch, ['Orderline', [{ field: 'orderIdById', type: 'id', value: String(o._oid) }], 50]);
+      const labels = (await getStore('labels')).lines || {};
+      for (const raw of (res && res.rows) || []) lineRows.push({ refs: [String(o._oid)], line: rawToRow(raw, labels, true) });
+      refs.add(String(o._oid)); o._refs = [...refs];
+    }
     for (const o of found) {
-      const refs = new Set(o._refs || []); delete o._refs;
+      const refs = new Set(o._refs || []); delete o._refs; delete o._oid;
       const lines = [], seenL = new Set();
       for (const lr of lineRows) {
         if (!lr.refs.some((v) => refs.has(v))) continue;
@@ -33,11 +53,109 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       if (lines.length) o._lines = lines;
     }
     if (found.length) return reply({ orders: found.slice(0, 5) });
-    if (!frames) return reply({ error: lastError || 'In het geopende beheer is geen bestellijst gevonden. Open Beheer orders en wacht tot de lijst geladen is.' });
+    if (loggedOut) return reply({ orders: [], lists, rows: 0, info: 'mogelijk uitgelogd' });
+    if (!frames && lastError) return reply({ error: lastError });
     reply({ orders: [], lists, rows, info: `doorzocht: ${lists} lijst${lists === 1 ? '' : 'en'} met samen ${rows} regels` });
   })();
   return true; // antwoord komt later
 });
+
+async function getStore(k) { try { return (await chrome.storage.local.get(k))[k] || {}; } catch { return {}; } }
+async function setStore(k, v) { try { await chrome.storage.local.set({ [k]: v }); } catch { /* niet erg */ } }
+// Kolomnamen onthouden (veldnaam -> kopje), alleen namen, geen inhoud
+async function saveLabels(l) {
+  const cur = await getStore('labels');
+  for (const kind of ['orders', 'lines']) if (l[kind] && Object.keys(l[kind]).length) cur[kind] = Object.assign(cur[kind] || {}, l[kind]);
+  await setStore('labels', cur);
+}
+async function inTab(tab, func, args) {
+  try { const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'MAIN', func, args }); return res && res.result; }
+  catch { return null; }
+}
+const SKIP = /e-?mail|telefoon|phone|wachtwoord|password|sessie|session|\bip\b|iban|hash|token|referentie|transactiecode|^id$|_id$|[a-z]Id$|ById$/;
+const SKIP_I = /e-?mail|telefoon|phone|wachtwoord|password|sessie|session|\bip\b|iban|hash|token|referentie|transactiecode|^id$|_id$/i;
+// Waarschijnlijke Nederlandse kopjes voor Engelse veldnamen (tot de echte kolomnamen uit het beheer geleerd zijn)
+const GUESS = { number: 'Ordernummer', orderNumber: 'Ordernummer', ordernumber: 'Ordernummer', firstName: 'Klant voornaam', firstname: 'Klant voornaam', lastName: 'Klant achternaam', lastname: 'Klant achternaam',
+  status: 'Status', trackAndTrace: 'Track en Trace code', trackandtrace: 'Track en Trace code', trackTrace: 'Track en Trace code', paymentMethod: 'Betaalmethode', totalInclVat: 'Bedrag incl. BTW', total: 'Bedrag incl. BTW',
+  shippingCosts: 'Verzendkosten', street: 'Afleverstraat', houseNumber: 'Aflevernummer', houseNumberAddition: 'Aflevernummer toevoegsel', zipcode: 'Afleverpostcode', postcode: 'Afleverpostcode', postalCode: 'Afleverpostcode',
+  city: 'Afleverplaats', country: 'Afleverland', remark: 'Opmerking', comment: 'Opmerking', internalRemark: 'Interne opmerking', internalComment: 'Interne opmerking', orderDate: 'Orderdatum', date: 'Orderdatum', invoiceNumber: 'Factuurnummer', processedOnOrderList: 'Verwerkt op bestellijst',
+  description: 'Omschrijving', productName: 'Omschrijving', name: 'Omschrijving', quantity: 'Aantal', qty: 'Aantal', amount: 'Aantal', price: 'Prijs', articleNumber: 'Artikelnummer' };
+// Ruwe rij van de server -> zelfde vorm als uit een geopende lijst (kopjes als labels, gevoelige velden eruit)
+function rawToRow(raw, labels, isLine) {
+  const row = {};
+  for (const [k, v0] of Object.entries(raw || {})) {
+    if (v0 === null || v0 === undefined || typeof v0 === 'object') continue;
+    const v = String(v0).trim(), label = labels[k] || (isLine || !['name', 'description', 'quantity', 'qty', 'amount', 'price', 'articleNumber'].includes(k) ? GUESS[k] : '') || k;
+    if (!v || SKIP.test(k) || SKIP_I.test(label) || isLine && /order|bestelling/i.test(k)) continue;
+    row[label] = v.slice(0, isLine ? 160 : 200);
+  }
+  if (!isLine) {
+    const mk = Object.keys(raw || {}).find((k) => /e-?mail/i.test(k) || /e-?mail/i.test(labels[k] || '')), mail = mk ? String(raw[mk]).trim() : '';
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) row._email = mail;
+    if (raw && raw.id !== undefined) row._oid = String(raw.id);
+    row._refs = Object.entries(raw || {}).filter(([k, v]) => /^id$|order|^nr$|number/i.test(k) && v !== null && typeof v !== 'object').map(([, v]) => String(v)).filter((v) => v.length >= 3);
+  }
+  return row;
+}
+// Gericht zoeken: probeer de bekende (of waarschijnlijke) filtervelden; een filter telt alleen als het antwoord
+// echt die bestelling bevat. Het werkende filter wordt onthouden (alleen veldnaam en type).
+async function searchOrders(tab, email, orders) {
+  const labels = (await getStore('labels')).orders || {}, known = await getStore('filters');
+  const byLabel = (re) => Object.keys(labels).filter((k) => re.test(labels[k]));
+  const tries = [];
+  for (const nr of orders.slice(0, 3)) {
+    const fields = [...new Set([...(known.nr ? [known.nr.field] : []), ...byLabel(/^ordernummer$/i), 'number', 'orderNumber', 'ordernumber', 'ordernummer', 'orderNr', 'nr'])];
+    const types = known.nr ? [known.nr.type, 'string', 'numeric', 'id'] : ['string', 'numeric', 'id'];
+    tries.push({ kind: 'nr', value: nr, fields, types: [...new Set(types)] });
+  }
+  if (email) {
+    const fields = [...new Set([...(known.email ? [known.email.field] : []), ...byLabel(/e-?mail/i), 'email', 'customerEmail', 'emailAddress', 'emailaddress', 'customerEmailAddress', 'mail'])];
+    tries.push({ kind: 'email', value: email, fields, types: ['string'] });
+  }
+  const out = [];
+  for (const t of tries) {
+    let done = false;
+    for (const field of t.fields.slice(0, 8)) {
+      for (const type of t.types) {
+        const res = await inTab(tab, adminSearch, ['Order', [{ field, type, value: t.value }], 5]);
+        if (!res) continue;
+        if (res.loggedOut) return { orders: [], loggedOut: true };
+        const match = (res.rows || []).filter((raw) => Object.values(raw || {}).some((v) => v !== null && typeof v !== 'object' && String(v).trim().toLowerCase() === String(t.value).trim().toLowerCase()));
+        if (!match.length) continue;
+        known[t.kind] = { field, type }; await setStore('filters', known);
+        out.push(...match.map((raw) => rawToRow(raw, labels)));
+        done = true; break;
+      }
+      if (done) break;
+    }
+    if (out.length) break;
+  }
+  return { orders: out.slice(0, 5) };
+}
+
+// Draait in het beheer (hoofdframe): één gefilterd verzoek zoals het beheer het zelf doet (met de eigen inlogsessie).
+// Altijd met filter en een kleine limiet; het antwoord gaat alleen terug naar de extensie.
+async function adminSearch(object, filters, limit) {
+  if (!filters || !filters.length) return { rows: [] };
+  const hit = performance.getEntriesByType('resource').map((e) => e.name).find((n) => /datahandler\.php/i.test(n));
+  const url = hit ? hit.replace(/\?.*$/, '') + '?action=read' : new URL('datahandler.php?action=read', location.href).href;
+  if (new URL(url).origin !== location.origin) return { rows: [] };
+  const body = new URLSearchParams({ object, method: 'Search', parameters: JSON.stringify(['filter', 'start', 'limit']), start: '0', limit: String(Math.min(limit || 5, 50)) });
+  filters.forEach((f, i) => { body.append(`filter[${i}][field]`, f.field); body.append(`filter[${i}][data][type]`, f.type); body.append(`filter[${i}][data][value]`, f.value); if (f.type === 'numeric') body.append(`filter[${i}][data][comparison]`, 'eq'); });
+  let txt;
+  try {
+    const res = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }, body });
+    if (res.status === 401 || res.status === 403) return { loggedOut: true };
+    txt = await res.text();
+  } catch { return null; }
+  if (!/^\s*[[{]/.test(txt)) return { loggedOut: true };
+  let j; try { j = JSON.parse(txt); } catch { return null; }
+  const isRows = (a) => Array.isArray(a) && a.every((x) => x && typeof x === 'object' && !Array.isArray(x));
+  let arr = isRows(j) ? j : null;
+  if (!arr && j && typeof j === 'object') for (const k of ['data', 'rows', 'results', 'items', 'records', 'result']) if (isRows(j[k])) { arr = j[k]; break; }
+  if (!arr && j && typeof j === 'object') arr = Object.values(j).find(isRows) || [];
+  return { rows: arr.slice(0, Math.min(limit || 5, 50)) };
+}
 
 // Draait in het beheer (Ext JS 3.4), in elk frame: zoekt in de geladen lijsten naar het mailadres of ordernummer.
 function lookupInExt(email, orders) {
@@ -86,6 +204,7 @@ function lookupInExt(email, orders) {
       const mail = mailKey.key ? fmt(d[mailKey.key]).trim() : '';
       if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) row._email = mail;
       const key = JSON.stringify(row);
+      if (d.id !== undefined || r.id !== undefined) row._oid = String(d.id !== undefined ? d.id : r.id);
       if (Object.keys(row).length && !seen.has(key)) { seen.add(key); results.push(row); hits.push({ row, rec: r, store: st }); }
     });
   });
@@ -115,5 +234,12 @@ function lookupInExt(email, orders) {
       if (Object.keys(line).length) lineRows.push({ refs, line });
     });
   });
-  return { orders: results.slice(0, 5), lineRows, lists: lists.size, rows };
+  // Kolomnamen onthouden (veldnaam -> kopje), zodat gericht opgevraagde rijen dezelfde namen krijgen
+  const labels = { orders: {}, lines: {} };
+  lists.forEach((cols, st) => {
+    if (!cols) return;
+    const kind = isLineList(cols) ? 'lines' : cols.some((c) => /^ordernummer$/i.test(c.label)) ? 'orders' : '';
+    if (kind) for (const c of cols) labels[kind][c.key] = c.label;
+  });
+  return { orders: results.slice(0, 5), lineRows, labels, lists: lists.size, rows };
 }
