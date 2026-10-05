@@ -297,7 +297,7 @@ body.locked > header, body.locked > main { display: none; }
           <button data-r="Gebruik de u-vorm in plaats van de je-vorm.">U-vorm</button>
           <button data-r="Vertaal het antwoord naar het Engels.">Engels</button>
         </div>
-        <details style="margin-top:14px">
+        <details style="margin-top:14px" id="ctxBox" hidden>
           <summary>Meegestuurde kennisbank bij het laatste antwoord <span id="ctxSummary"></span></summary>
           <p class="note" id="ctxDocs">Hier zie je welke documenten uit de kennisbank de AI bij het laatste antwoord heeft gekregen.</p>
           <pre class="ctx" id="ctxView" hidden></pre>
@@ -487,8 +487,8 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.27.2';       // technisch nummer (voor de updatecontrole)
-const APP_DATE = '2026-10-05 20:56'; // wanneer deze versie online kwam (dit ziet de gebruiker)
+const APP_VERSION = '1.27.3';       // technisch nummer (voor de updatecontrole)
+const APP_DATE = '2026-10-05 20:58'; // wanneer deze versie online kwam (dit ziet de gebruiker)
 const fmtAppDate = d => { const t = new Date(d.replace(' ', 'T')); return isNaN(t) ? d : t.toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'bijgewerkt ' + fmtAppDate(APP_DATE); el.title = 'Versie ' + APP_VERSION; });
 
@@ -1570,13 +1570,9 @@ $('exClear').addEventListener('click', () => { if (confirm('Alle onthouden voorb
 
 // ---------- meegestuurde kennis tonen ----------
 function showContext(knowledge, nEx = 0) {
-  if (knowledge === null || knowledge === 'onbekend') {
-    $('ctxSummary').textContent = '';
-    $('ctxDocs').textContent = knowledge === 'onbekend'
-      ? 'Dit antwoord komt uit de geschiedenis; welke documenten toen zijn meegestuurd is niet bewaard. Klik op "Antwoord maken" voor een nieuw antwoord.'
-      : 'Hier zie je welke documenten uit de kennisbank de AI bij het laatste antwoord heeft gekregen. Dat verschijnt zodra je op "Antwoord maken" klikt.';
-    $('ctxView').hidden = true; return;
-  }
+  // Alleen tonen als bekend is wat er is meegestuurd (dus na 'Antwoord maken'); anders verbergen
+  $('ctxBox').hidden = knowledge === null || knowledge === 'onbekend';
+  if ($('ctxBox').hidden) return;
   const full = [], frag = new Map();
   for (const m of (knowledge || '').matchAll(/^### (.+?)( \(fragment\))?$/gm)) {
     if (m[2]) frag.set(m[1], (frag.get(m[1]) || 0) + 1); else full.push(m[1]);
