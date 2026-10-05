@@ -487,7 +487,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.24.0';
+const APP_VERSION = '1.24.1';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1883,12 +1883,12 @@ function ttLink(code, land, postcode) {
   const c = String(code).trim().replace(/\s+/g, ''), l = (String(land || 'NL').trim().slice(0, 2) || 'NL').toUpperCase(), pc = String(postcode || '').replace(/\s+/g, '').toUpperCase();
   return 'https://jouw.postnl.nl/track-and-trace/' + encodeURIComponent(pc ? `${c}-${l}-${pc}` : c);
 }
-// Eén orderregel leesbaar: "2× Vitamine D3 druppels (art.nr 12345), € 12,95"
-function lineText(l) {
+// Eén orderregel leesbaar: "2× Vitamine D3 druppels, € 12,95" (in de notitie zonder prijs: "2× Vitamine D3 druppels")
+function lineText(l, short) {
   const qty = pick(l, /aantal|qty|quantity|stuks/i), name = pick(l, /omschrijving|artikel ?naam|product ?naam|productnaam|^product$|^artikel$|titel|^naam$/i);
-  const code = pick(l, /artikel ?n(umme)?r|artikelcode|sku|ean|^code$/i), price = pick(l, /prijs|bedrag|totaal/i);
+  const price = pick(l, /prijs|bedrag|totaal/i);
   if (!name) return Object.entries(l).map(([k, v]) => `${k}: ${v}`).join(', ');
-  return `${qty ? qty.replace(/\.0+$/, '') + '× ' : ''}${name}${code ? ' (art.nr ' + code + ')' : ''}${price ? ', € ' + String(price).replace('.', ',') : ''}`;
+  return `${qty ? qty.replace(/\.0+$/, '') + '× ' : ''}${name}${!short && price ? ', € ' + String(price).replace('.', ',') : ''}`;
 }
 const LINE_HEAD = nr => `— Betreft artikel(en) uit bestelling ${nr ? '#' + nr : ''} (toegevoegd door de app) —`.replace('  ', ' ');
 function orderView(o, i) {
@@ -1928,7 +1928,7 @@ $('orderBox').addEventListener('click', e => {
   const lb = e.target.closest('[data-line]');
   if (lb) {
     const [i, j] = lb.dataset.line.split(':').map(Number), o = foundRaw[i], l = o && o._lines && o._lines[j]; if (!l) return;
-    const note = $('note'), head = LINE_HEAD(pick(o, /^ordernummer$/i)), item = '• ' + lineText(l);
+    const note = $('note'), head = LINE_HEAD(pick(o, /^ordernummer$/i)), item = '• ' + lineText(l, true);
     if (!note.value.includes(item)) {
       const v = note.value, at = v.indexOf(head);
       if (at >= 0) { const end = v.indexOf('\n\n', at); const pos = end < 0 ? v.length : end; note.value = v.slice(0, pos) + '\n' + item + v.slice(pos); }
