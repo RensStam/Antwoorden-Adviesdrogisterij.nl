@@ -187,7 +187,7 @@ body.locked > header, body.locked > main { display: none; }
   <div class="wrap">
     <div class="top">
       <h1><img class="logo-img" src="logo.svg" alt="adviesdrogisterij.nl"><span class="logo-sub">Antwoorden</span> <small class="appVersion" title="Versie van de app"></small></h1>
-      <div class="right"><span class="note" id="syncState" style="margin:0"></span><span class="pill" id="creditPill" hidden title="Geschat tegoed bij OpenAI (opgewaardeerd min live kosten)"></span><span class="pill" id="modelPill"></span><button class="btn primary" id="lockNow" type="button">Vergrendelen</button></div>
+      <div class="right"><span class="note" id="syncState" style="margin:0"></span><span class="pill" id="creditPill" hidden title="Geschat tegoed bij OpenAI (opgewaardeerd min live kosten)"></span><span class="pill" id="modelPill"></span><button class="btn" id="reloadApp" type="button" title="App opnieuw laden met de nieuwste versie (zoals Ctrl+F5); je blijft ingelogd als Onthoud mij aan staat">↻ Verversen</button><button class="btn primary" id="lockNow" type="button">Vergrendelen</button></div>
     </div>
   </div>
   <div class="navbar"><div class="wrap">
@@ -487,8 +487,8 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.27.0';       // technisch nummer (voor de updatecontrole)
-const APP_DATE = '2026-10-05 20:49'; // wanneer deze versie online kwam (dit ziet de gebruiker)
+const APP_VERSION = '1.27.1';       // technisch nummer (voor de updatecontrole)
+const APP_DATE = '2026-10-05 20:54'; // wanneer deze versie online kwam (dit ziet de gebruiker)
 const fmtAppDate = d => { const t = new Date(d.replace(' ', 'T')); return isNaN(t) ? d : t.toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'bijgewerkt ' + fmtAppDate(APP_DATE); el.title = 'Versie ' + APP_VERSION; });
 
@@ -2102,6 +2102,8 @@ $('importFile').addEventListener('change', async e => {
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 $('lockNow').addEventListener('click', () => window.vaultLockForget());
+// Verversen: eerst opslaan, dan de nieuwste versie laden (omzeilt de browsercache, zoals Ctrl+F5)
+$('reloadApp').addEventListener('click', () => window.vaultLock(location.pathname + '?v=' + Date.now()));
 $('lockNow').title = 'Vergrendelen en deze computer vergeten (daarna is het wachtwoord weer nodig)';
 
 // Nieuwe versie online? De browser bewaart pagina's soms even; dan een melding tonen
