@@ -487,7 +487,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.24.1';
+const APP_VERSION = '1.25.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1342,6 +1342,8 @@ function buildSystem(knowledge, ex = []) {
     : instructions;
   return `${instr}
 
+WEBSHOPGEGEVENS IN DE NOTITIE: een blok dat begint met "— Bestelling uit de webshop" bevat feiten uit ons beheer. Gebruik alleen wat helpt bij de vraag van de klant en som niet alles op; noem interne opmerkingen nooit letterlijk. Een blok "— De mail gaat over deze artikel(en)" noemt de artikelen waar het om gaat: noem die bij naam in het antwoord.
+
 LINKS: zet een link in de tekst altijd als [omschrijving](https://...) en volg daarbij de linkregels uit de instructies (bijv. 👉 ervoor). De app maakt er in het concept een klikbare link van. Staat er een track & trace-link in de notitie, neem die dan op deze manier op.
 
 KENNISBANK (sjablonen en beleid; pas het juiste sjabloon toe als dat er is)
@@ -1418,7 +1420,7 @@ $('genBtn').addEventListener('click', () => {
 
 function makeNewMail() {
   if (!isConfigured()) { go('settings'); setStatus($('setStatus'), 'Stel eerst een AI-model in.', true); return; }
-  const note = $('note').value.trim(), own = note.replace(/\n*— Info uit de webshop[^\n]*(\n[^\n]*)?/g, '').trim();
+  const note = $('note').value.trim(), own = stripShop(note).trim();
   if (!own) { setStatus($('genStatus'), 'Typ eerst in het notitieveld wat je de klant wilt laten weten.', true); $('note').focus(); return; }
   const subject = $('replySubject').value.trim();
   const knowledge = selectKnowledge(note); showContext(knowledge, 0);
@@ -1518,7 +1520,7 @@ function learnFromCopy() {
   const email = $('email').value.trim(), reply = $('reply').value.trim();
   if (!email || !reply || /\[AANVULLEN/i.test(reply)) return false; // niet leren van onafgemaakte antwoorden
   // bestelgegevens niet onthouden: het blok uit de webshop (kopregel + samenvatting) weglaten
-  const noteNoShop = $('note').value.replace(/\n*— Info uit de webshop[^\n]*(\n[^\n]*)?/g, '').split('\n').filter(l => !/^Gegevens uit de webshop:/i.test(l)).join('\n').trim();
+  const noteNoShop = stripShop($('note').value).split('\n').filter(l => !/^Gegevens uit de webshop:/i.test(l)).join('\n').trim();
   const ex = scrubNames({ t: Date.now(), email: maskAlways(email), note: maskAlways(noteNoShop), reply: maskAlways(reply) });
   examples = examples.filter(e => e.email !== ex.email); // zelfde mail: nieuwste versie telt
   examples.unshift(ex); examples = examples.slice(0, MAX_EXAMPLES);
@@ -1836,7 +1838,8 @@ const ORDER_FIELDS = [
   [/^betaalmethode$/i], [/^transactie status$/i], [/bedrag incl|^bedrag$|^totaal/i], [/^verzendkosten$/i], [/^factuurnummer$/i],
   [/gecrediteerd/i, 'bool'], [/avondbezorging/i, 'bool'], [/retour/i], [/^afleverplaats$/i], [/^afleverland$/i],
 ];
-const STATUS_NL = { payed: 'betaald', paid: 'betaald', open: 'open (nog niet betaald)', pending: 'in behandeling', shipped: 'verzonden', sent: 'verzonden', cancelled: 'geannuleerd', canceled: 'geannuleerd', expired: 'verlopen', failed: 'mislukt', refunded: 'terugbetaald' };
+const STATUS_NL = { payed: 'betaald', paid: 'betaald', open: 'open (nog niet betaald)', pending: 'in behandeling', shipped: 'verzonden', sent: 'verzonden', cancelled: 'geannuleerd', canceled: 'geannuleerd', expired: 'verlopen', failed: 'mislukt', refunded: 'terugbetaald', credited: 'gecrediteerd', backorder: 'in backorder (nog niet leverbaar)', processing: 'in behandeling', completed: 'afgerond', complete: 'afgerond', delivered: 'bezorgd', returned: 'retour ontvangen' };
+const PAY_NL = { ideal: 'iDEAL', bancontact: 'Bancontact', kbc: 'KBC/CBC', creditcard: 'creditcard', paypal: 'PayPal', banktransfer: 'overboeking', afterpay: 'Riverty (achteraf betalen)', klarna: 'Klarna', belfius: 'Belfius' };
 function slimOrder(o) {
   const out = [];
   for (const [re, kind] of ORDER_FIELDS) {
@@ -1856,25 +1859,31 @@ function orderSummary(o) {
   const f = Object.fromEntries(slimOrder(o));
   const get = re => { const k = Object.keys(f).find(x => re.test(x)); return k ? f[k] : ''; };
   const euro = v => v ? '€ ' + String(v).replace('.', ',') : '';
+  const nl = v => STATUS_NL[String(v).toLowerCase()] || v;
   const nr = get(/ordernummer/i), datum = get(/orderdatum/i), status = get(/^status$/i), tstatus = get(/transactie status/i);
   const tt = get(/track/i), betaal = get(/betaalmethode/i), bedrag = get(/bedrag incl|^bedrag$|^totaal/i), vk = get(/verzendkosten/i);
   const plaats = get(/afleverplaats/i), land = get(/afleverland/i), factuur = get(/factuurnummer/i), methode = get(/verzendmethode|verzendwijze/i);
-  const parts = [
-    `Bestelling ${nr || '?'}${datum ? ' van ' + datum : ''}: ${status || 'status onbekend'}${tstatus && tstatus !== status ? ' (betaling: ' + tstatus + ')' : ''}${betaal ? ' via ' + betaal : ''}${bedrag ? ', ' + euro(bedrag) : ''}${vk && vk !== '0.00' ? ' incl. ' + euro(vk) + ' verzendkosten' : ''}.`,
-    tt ? `Track & trace: ${tt}. Track & trace-link: ${ttLink(tt, pick(o, /^afleverland$/i) || land, pick(o, /afleverpostcode/i))}` : 'Nog geen track & trace.',
-    methode ? `Verzendmethode: ${methode}.` : '',
-    plaats || land ? `Bezorging: ${[plaats, land].filter(Boolean).join(', ')}.` : '',
-    factuur ? `Factuurnummer: ${factuur}.` : '',
-    get(/gecrediteerd/i) ? 'Deze bestelling is gecrediteerd.' : '',
-    get(/avondbezorging/i) ? 'Avondbezorging.' : '',
-    pick(o, /opmerking/i, /intern/i) ? `Opmerking van de klant: ${pick(o, /opmerking/i, /intern/i)}.` : '',
-    pick(o, /intern.*opmerking|opmerking.*intern/i) ? `Interne opmerking: ${pick(o, /intern.*opmerking|opmerking.*intern/i)}.` : '',
-    /^(1|true|ja)$/i.test(pick(o, /verwerkt op bestellijst/i)) ? 'Verwerkt op de bestellijst.' : '',
+  const verzonden = get(/verzonden op|verstuurd op|verzenddatum/i);
+  const opm = pick(o, /opmerking/i, /intern/i), intern = pick(o, /intern.*opmerking|opmerking.*intern/i);
+  const st = nl(status), credited = !!get(/gecrediteerd/i) && !/gecrediteerd/.test(st);
+  const pay = [tstatus && nl(tstatus) !== st ? 'betaling: ' + nl(tstatus) : '', betaal ? 'via ' + (PAY_NL[betaal.toLowerCase()] || betaal) : ''].filter(Boolean).join(', ');
+  const lines = [
+    nr ? `Ordernummer: ${nr}` : '',
+    datum ? `Besteld op: ${datum}` : '',
+    `Status: ${st || 'onbekend'}${credited ? ', gecrediteerd' : ''}${pay ? ' (' + pay + ')' : ''}`,
+    bedrag ? `Orderbedrag: ${euro(bedrag)}${vk && vk !== '0.00' ? ' (incl. ' + euro(vk) + ' verzendkosten)' : ''}` : '',
+    `Verzending: ${tt ? 'track & trace ' + tt + ' (link: ' + ttLink(tt, pick(o, /^afleverland$/i) || land, pick(o, /afleverpostcode/i)) + ')' : 'nog geen track & trace'}${verzonden ? ', verzonden op ' + verzonden : ''}${methode ? ', ' + methode : ''}${get(/avondbezorging/i) ? ', avondbezorging' : ''}${plaats || land ? '; bezorgadres in ' + [plaats, land].filter(Boolean).join(', ') : ''}`,
+    factuur ? `Factuurnummer: ${factuur}` : '',
+    opm ? `Opmerking bij de bestelling: ${opm}` : '',
+    intern ? `Interne opmerking (alleen voor ons, niet letterlijk aan de klant noemen): ${intern}` : '',
+    /^(1|true|ja)$/i.test(pick(o, /verwerkt op bestellijst/i)) ? 'Verwerkt op de bestellijst: ja' : '',
   ];
-  return parts.filter(Boolean).join(' ');
+  return lines.filter(Boolean).join('\n');
 }
 let foundOrders = [], foundRaw = [];
-const SHOP_HEAD = '— Info uit de webshop (automatisch toegevoegd door de app) —';
+const SHOP_HEAD = '— Bestelling uit de webshop (toegevoegd door de app; feiten ter info) —';
+// Blokken die de app in de notitie zet (tot de volgende lege regel); ook de oude kopjes
+const stripShop = t => String(t).replace(/\n*— (Info uit de webshop|Bestelling uit de webshop|Betreft artikel|De mail gaat over)[^\n]*(\n(?!\n)[^\n]*)*/g, '').trim();
 // Veld uit de bestelling op label zoeken
 const pick = (o, re, not) => { const k = Object.keys(o).find(x => re.test(x.trim()) && !(not && not.test(x))); return k ? String(o[k]).trim() : ''; };
 const yesNo = v => /^(1|true|ja|yes)$/i.test(String(v)) ? 'ja' : (v === '' ? '' : 'nee');
@@ -1890,7 +1899,7 @@ function lineText(l, short) {
   if (!name) return Object.entries(l).map(([k, v]) => `${k}: ${v}`).join(', ');
   return `${qty ? qty.replace(/\.0+$/, '') + '× ' : ''}${name}${!short && price ? ', € ' + String(price).replace('.', ',') : ''}`;
 }
-const LINE_HEAD = nr => `— Betreft artikel(en) uit bestelling ${nr ? '#' + nr : ''} (toegevoegd door de app) —`.replace('  ', ' ');
+const LINE_HEAD = nr => `— De mail gaat over deze artikel(en) uit bestelling${nr ? ' #' + nr : ''} (toegevoegd door de app) —`;
 function orderView(o, i) {
   const nr = pick(o, /^ordernummer$/i), status = pick(o, /^status$/i), statusNl = STATUS_NL[status.toLowerCase()] || status;
   const naam = [pick(o, /voornaam/i), pick(o, /achternaam/i)].filter(Boolean).join(' '), bedrijf = pick(o, /bedrijfsnaam/i);
