@@ -127,6 +127,9 @@ pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); bord
 .orderbox .yes { color: var(--accent); } .orderbox .no { color: var(--warn); }
 @media (max-width: 700px) { .orderbox .ogrid { grid-template-columns: max-content 1fr; } .orderbox .ogrid .wide { grid-column: 2; } }
 .orderbox .actions { margin-top: 8px; }
+.orderbox .olines { margin-top: 10px; } .orderbox .olh { font-weight: 700; margin-bottom: 4px; }
+.orderbox .oline { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 4px 0; border-top: 1px dotted var(--line); }
+.orderbox .oline .btn { flex: 0 0 auto; padding: 3px 10px; font-size: 12px; }
 .checks { margin-top: 12px; border-radius: 8px; padding: 10px 12px; background: var(--warn-soft); color: var(--warn); font-size: 14px; }
 .checks.ok { background: var(--accent-soft); color: var(--accent); }
 .checks ul { margin: 4px 0 0; padding-left: 18px; }
@@ -184,7 +187,7 @@ body.locked > header, body.locked > main { display: none; }
   <div class="wrap">
     <div class="top">
       <h1><img class="logo-img" src="logo.svg" alt="adviesdrogisterij.nl"><span class="logo-sub">Antwoorden</span> <small class="appVersion" title="Versie van de app"></small></h1>
-      <div class="right"><span class="note" id="syncState" style="margin:0"></span><span class="pill" id="creditPill" hidden title="Geschat tegoed bij OpenAI (opgewaardeerd min live kosten)"></span><span class="pill" id="modelPill"></span><button class="btn" id="lockNow" type="button">Vergrendelen</button></div>
+      <div class="right"><span class="note" id="syncState" style="margin:0"></span><span class="pill" id="creditPill" hidden title="Geschat tegoed bij OpenAI (opgewaardeerd min live kosten)"></span><span class="pill" id="modelPill"></span><button class="btn primary" id="lockNow" type="button">Vergrendelen</button></div>
     </div>
   </div>
   <div class="navbar"><div class="wrap">
@@ -484,7 +487,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.23.0';
+const APP_VERSION = '1.24.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1880,6 +1883,14 @@ function ttLink(code, land, postcode) {
   const c = String(code).trim().replace(/\s+/g, ''), l = (String(land || 'NL').trim().slice(0, 2) || 'NL').toUpperCase(), pc = String(postcode || '').replace(/\s+/g, '').toUpperCase();
   return 'https://jouw.postnl.nl/track-and-trace/' + encodeURIComponent(pc ? `${c}-${l}-${pc}` : c);
 }
+// Eén orderregel leesbaar: "2× Vitamine D3 druppels (art.nr 12345), € 12,95"
+function lineText(l) {
+  const qty = pick(l, /aantal|qty|quantity|stuks/i), name = pick(l, /omschrijving|artikel ?naam|product ?naam|productnaam|^product$|^artikel$|titel|^naam$/i);
+  const code = pick(l, /artikel ?n(umme)?r|artikelcode|sku|ean|^code$/i), price = pick(l, /prijs|bedrag|totaal/i);
+  if (!name) return Object.entries(l).map(([k, v]) => `${k}: ${v}`).join(', ');
+  return `${qty ? qty.replace(/\.0+$/, '') + '× ' : ''}${name}${code ? ' (art.nr ' + code + ')' : ''}${price ? ', € ' + String(price).replace('.', ',') : ''}`;
+}
+const LINE_HEAD = nr => `— Betreft artikel(en) uit bestelling ${nr ? '#' + nr : ''} (toegevoegd door de app) —`.replace('  ', ' ');
 function orderView(o, i) {
   const nr = pick(o, /^ordernummer$/i), status = pick(o, /^status$/i), statusNl = STATUS_NL[status.toLowerCase()] || status;
   const naam = [pick(o, /voornaam/i), pick(o, /achternaam/i)].filter(Boolean).join(' '), bedrijf = pick(o, /bedrijfsnaam/i);
@@ -1901,6 +1912,9 @@ function orderView(o, i) {
       ${row('Opmerking', esc(opm), 'wide')}
       ${row('Interne opmerking', esc(intern), 'wide')}
     </dl>
+    ${(o._lines || []).length ? `<div class="olines"><div class="olh">Artikelen <span class="sub" style="display:inline">· klik op Overnemen als de mail over dat artikel gaat</span></div>
+      ${o._lines.map((l, j) => `<div class="oline"><span>${esc(lineText(l))}</span><button class="btn" type="button" data-line="${i}:${j}">Overnemen</button></div>`).join('')}</div>`
+      : '<div class="olines sub">Artikelen: niet gevonden in het geopende beheer. Open de bestelling in het beheer (orderregels) en zoek opnieuw.</div>'}
     <div class="actions"><button class="btn" type="button" data-take="${i}" style="padding:4px 12px;font-size:13px">Overnemen in notitie</button>${o._email ? `<button class="btn" type="button" data-new="${i}" style="padding:4px 12px;font-size:13px">✉️ Nieuwe mail aan deze klant</button>` : ''}</div>
   </div>`;
 }
@@ -1911,6 +1925,19 @@ function showOrders() {
   box.innerHTML = '<b>Gevonden in de Webshop</b>' + foundRaw.map(orderView).join('');
 }
 $('orderBox').addEventListener('click', e => {
+  const lb = e.target.closest('[data-line]');
+  if (lb) {
+    const [i, j] = lb.dataset.line.split(':').map(Number), o = foundRaw[i], l = o && o._lines && o._lines[j]; if (!l) return;
+    const note = $('note'), head = LINE_HEAD(pick(o, /^ordernummer$/i)), item = '• ' + lineText(l);
+    if (!note.value.includes(item)) {
+      const v = note.value, at = v.indexOf(head);
+      if (at >= 0) { const end = v.indexOf('\n\n', at); const pos = end < 0 ? v.length : end; note.value = v.slice(0, pos) + '\n' + item + v.slice(pos); }
+      else { const own = v.trim(); note.value = own ? v.replace(/\s+$/, '') + '\n\n' + head + '\n' + item : '\n\n\n' + head + '\n' + item; }
+    }
+    lb.textContent = '✓ Overgenomen'; lb.disabled = true;
+    if (!note.value.trim().startsWith(head)) return;
+    note.focus(); note.setSelectionRange(0, 0); note.scrollTop = 0; return;
+  }
   const nb = e.target.closest('[data-new]');
   if (nb) { startNewMail(+nb.dataset.new); return; }
   const i = e.target.dataset.take; if (i === undefined) return;
