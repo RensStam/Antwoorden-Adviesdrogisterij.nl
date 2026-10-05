@@ -487,7 +487,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.26.2';
+const APP_VERSION = '1.26.3';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1933,29 +1933,32 @@ function showOrders() {
   if (!foundRaw.length) return;
   box.innerHTML = '<b>Gevonden in de Webshop</b>' + foundRaw.map(orderView).join('');
 }
+// Webshopinfo of artikelen in de notitie zetten. Staat er nog geen eigen tekst, dan blijft er bovenaan altijd
+// schrijfruimte (lege regels) met de cursor daar; anders komt het onder je eigen tekst.
+function addToNote(block, head) {
+  const note = $('note'), v = note.value;
+  const at = head ? v.indexOf(head) : -1;
+  let nv;
+  if (at >= 0) { const end = v.indexOf('\n\n', at), pos = end < 0 ? v.length : end; nv = v.slice(0, pos) + '\n' + block + v.slice(pos); }
+  else nv = v.trim() ? v.replace(/\s+$/, '') + '\n\n' + block : block;
+  const own = stripShop(nv);
+  if (!own) nv = '\n\n\n' + nv.trim();
+  note.value = nv;
+  const cur = own ? nv.indexOf(own) + own.length : 0;
+  note.focus(); note.setSelectionRange(cur, cur); note.scrollTop = 0;
+}
 $('orderBox').addEventListener('click', e => {
   const lb = e.target.closest('[data-line]');
   if (lb) {
     const [i, j] = lb.dataset.line.split(':').map(Number), o = foundRaw[i], l = o && o._lines && o._lines[j]; if (!l) return;
-    const note = $('note'), head = LINE_HEAD(pick(o, /^ordernummer$/i)), item = '• ' + lineText(l, true);
-    if (!note.value.includes(item)) {
-      const v = note.value, at = v.indexOf(head);
-      if (at >= 0) { const end = v.indexOf('\n\n', at); const pos = end < 0 ? v.length : end; note.value = v.slice(0, pos) + '\n' + item + v.slice(pos); }
-      else { const own = v.trim(); note.value = own ? v.replace(/\s+$/, '') + '\n\n' + head + '\n' + item : '\n\n\n' + head + '\n' + item; }
-    }
-    lb.textContent = '✓ Overgenomen'; lb.disabled = true;
-    if (!note.value.trim().startsWith(head)) return;
-    note.focus(); note.setSelectionRange(0, 0); note.scrollTop = 0; return;
+    const head = LINE_HEAD(pick(o, /^ordernummer$/i)), item = '• ' + lineText(l, true);
+    if (!$('note').value.includes(item)) addToNote($('note').value.includes(head) ? item : head + '\n' + item, head);
+    lb.textContent = '✓ Overgenomen'; lb.disabled = true; return;
   }
   const nb = e.target.closest('[data-new]');
   if (nb) { startNewMail(+nb.dataset.new); return; }
   const i = e.target.dataset.take; if (i === undefined) return;
-  const note = $('note'), t = SHOP_HEAD + '\n' + foundOrders[+i];
-  if (!note.value.includes(foundOrders[+i])) {
-    const own = note.value.trim();
-    note.value = own ? own + '\n\n' + t : '\n\n\n' + t; // leeg: schrijfruimte bovenaan voor je eigen notitie
-    note.focus(); note.setSelectionRange(own ? own.length : 0, own ? own.length : 0); note.scrollTop = 0;
-  }
+  if (!$('note').value.includes(foundOrders[+i])) addToNote(SHOP_HEAD + '\n' + foundOrders[+i]);
   e.target.textContent = '✓ Overgenomen'; e.target.disabled = true;
 });
 // ---------- Nieuwe mail aan een klant (geen antwoord), vanuit een gevonden bestelling ----------
