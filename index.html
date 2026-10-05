@@ -487,7 +487,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.26.1';
+const APP_VERSION = '1.26.2';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -2024,6 +2024,8 @@ async function findOrder(auto, query) {
   if ((!r.orders || !r.orders.length) && (r.rows === 0 || /met samen 0 regels/.test(r.info || ''))) {
     setStatus(st, 'MOGELIJK UITGELOGD: het webshopbeheer gaf geen enkele bestelling terug. Log opnieuw in op adviesdrogisterij.nl/App.', true); return;
   }
+  // Automatisch zoeken bij het openen van een mail (bijv. van een leverancier): niets gevonden = geen melding
+  if ((!r.orders || !r.orders.length) && auto) { setStatus(st, ''); return; }
   if (!r.orders || !r.orders.length) { setStatus(st, `Geen bestelling gevonden${orders.length ? ' voor ' + orders.join(', ') : ''}${email ? (orders.length ? ' of ' : ' voor ') + email : ''} in je webshop. Controleer het ordernummer of e-mailadres.`); return; }
   extOld = !r.ver || r.ver.split('.').map(Number).reduce((a, n, i) => a + n * [1e6, 1e3, 1][i], 0) < 1002001; // < 1.2.1
   foundRaw = r.orders; foundOrders = r.orders.map(orderSummary); showOrders();
