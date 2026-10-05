@@ -36,11 +36,19 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     // Artikelen van de gevonden bestellingen die nog niet in het beheer geladen zijn
     for (const o of found.slice(0, 3)) {
       const refs = new Set(o._refs || []);
-      if (!o._oid || lineRows.some((lr) => lr.refs.some((v) => refs.has(v)))) continue;
-      const res = await inTab(main, adminSearch, ['Orderline', [{ field: 'orderIdById', type: 'id', value: String(o._oid) }], 50]);
+      if (lineRows.some((lr) => lr.refs.some((v) => refs.has(v)))) continue;
+      // Intern order-id: eerst het bekende id, dan andere nummers van de bestelling (bijv. als het id anders heet)
+      const ids = [...new Set([o._oid, ...(o._refs || [])].filter((v) => v && /^\d{3,12}$/.test(String(v))).map(String))].slice(0, 4);
       const labels = (await getStore('labels')).lines || {};
-      for (const raw of (res && res.rows) || []) lineRows.push({ refs: [String(o._oid)], line: rawToRow(raw, labels, true) });
-      refs.add(String(o._oid)); o._refs = [...refs];
+      for (const id of ids) {
+        const res = await inTab(main, adminSearch, ['Orderline', [{ field: 'orderIdById', type: 'id', value: id }], 50]);
+        const got = (res && res.rows) || [];
+        // alleen regels die echt bij dit id horen (als het antwoord een order-veld heeft)
+        const own = got.filter((raw) => { const ks = Object.keys(raw || {}).filter((k) => /order/i.test(k)); return !ks.length || ks.some((k) => String(raw[k]) === id); });
+        if (!own.length) continue;
+        for (const raw of own) lineRows.push({ refs: [id], line: rawToRow(raw, labels, true) });
+        refs.add(id); o._refs = [...refs]; break;
+      }
     }
     for (const o of found) {
       const refs = new Set(o._refs || []); delete o._refs; delete o._oid;
@@ -52,7 +60,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       }
       if (lines.length) o._lines = lines;
     }
-    if (found.length) return reply({ orders: found.slice(0, 5) });
+    if (found.length) return reply({ orders: found.slice(0, 5), ver: chrome.runtime.getManifest().version });
     if (loggedOut) return reply({ orders: [], lists, rows: 0, info: 'mogelijk uitgelogd' });
     if (!frames && lastError) return reply({ error: lastError });
     reply({ orders: [], lists, rows, info: `doorzocht: ${lists} lijst${lists === 1 ? '' : 'en'} met samen ${rows} regels` });
@@ -93,7 +101,7 @@ function rawToRow(raw, labels, isLine) {
     const mk = Object.keys(raw || {}).find((k) => /e-?mail/i.test(k) || /e-?mail/i.test(labels[k] || '')), mail = mk ? String(raw[mk]).trim() : '';
     if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) row._email = mail;
     if (raw && raw.id !== undefined) row._oid = String(raw.id);
-    row._refs = Object.entries(raw || {}).filter(([k, v]) => /^id$|order|^nr$|number/i.test(k) && v !== null && typeof v !== 'object').map(([, v]) => String(v)).filter((v) => v.length >= 3);
+    row._refs = Object.entries(raw || {}).filter(([k, v]) => /id$|order|^nr$|number/i.test(k) && v !== null && typeof v !== 'object').map(([, v]) => String(v)).filter((v) => v.length >= 3);
   }
   return row;
 }
@@ -213,7 +221,7 @@ function lookupInExt(email, orders) {
   // de regels in een ander frame van het beheer staan.
   for (const h of hits.slice(0, 5)) {
     const d = h.rec.data || {};
-    h.row._refs = [h.rec.id, ...Object.keys(d).filter((k) => /^id$|order|^nr$/i.test(k)).map((k) => d[k])]
+    h.row._refs = [h.rec.id, ...Object.keys(d).filter((k) => /id$|order|^nr$/i.test(k)).map((k) => d[k])]
       .filter((v) => v !== undefined && v !== null && typeof v !== 'object').map((v) => String(v).trim()).filter((v) => v.length >= 3);
   }
   const lineRows = [];
