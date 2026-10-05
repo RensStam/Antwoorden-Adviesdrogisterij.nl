@@ -187,7 +187,7 @@ body.locked > header, body.locked > main { display: none; }
   <div class="wrap">
     <div class="top">
       <h1><img class="logo-img" src="logo.svg" alt="adviesdrogisterij.nl"><span class="logo-sub">Antwoorden</span> <small class="appVersion" title="Versie van de app"></small></h1>
-      <div class="right"><span class="note" id="syncState" style="margin:0"></span><span class="pill" id="creditPill" hidden title="Geschat tegoed bij OpenAI (opgewaardeerd min live kosten)"></span><span class="pill" id="modelPill"></span><button class="btn" id="reloadApp" type="button" title="App opnieuw laden met de nieuwste versie (zoals Ctrl+F5); je blijft ingelogd als Onthoud mij aan staat">↻ Verversen</button><button class="btn primary" id="lockNow" type="button">Vergrendelen</button></div>
+      <div class="right"><span class="note" id="syncState" style="margin:0"></span><span class="pill" id="creditPill" hidden title="Geschat tegoed bij OpenAI (opgewaardeerd min live kosten)"></span><span class="pill" id="modelPill"></span><button class="btn primary" id="reloadApp" type="button" title="App opnieuw laden met de nieuwste versie (zoals Ctrl+F5); je blijft ingelogd als Onthoud mij aan staat">↻ Verversen</button><button class="btn primary" id="lockNow" type="button">Vergrendelen</button></div>
     </div>
   </div>
   <div class="navbar"><div class="wrap">
@@ -299,7 +299,7 @@ body.locked > header, body.locked > main { display: none; }
         </div>
         <details style="margin-top:14px">
           <summary>Meegestuurde kennisbank bij het laatste antwoord <span id="ctxSummary"></span></summary>
-          <p class="note" id="ctxDocs">Nog geen antwoord gemaakt. Hier zie je straks welke documenten de AI heeft gekregen.</p>
+          <p class="note" id="ctxDocs">Hier zie je welke documenten uit de kennisbank de AI bij het laatste antwoord heeft gekregen.</p>
           <pre class="ctx" id="ctxView" hidden></pre>
         </details>
       </div>
@@ -487,8 +487,8 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.27.1';       // technisch nummer (voor de updatecontrole)
-const APP_DATE = '2026-10-05 20:54'; // wanneer deze versie online kwam (dit ziet de gebruiker)
+const APP_VERSION = '1.27.2';       // technisch nummer (voor de updatecontrole)
+const APP_DATE = '2026-10-05 20:56'; // wanneer deze versie online kwam (dit ziet de gebruiker)
 const fmtAppDate = d => { const t = new Date(d.replace(' ', 'T')); return isNaN(t) ? d : t.toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'bijgewerkt ' + fmtAppDate(APP_DATE); el.title = 'Versie ' + APP_VERSION; });
 
@@ -1570,7 +1570,13 @@ $('exClear').addEventListener('click', () => { if (confirm('Alle onthouden voorb
 
 // ---------- meegestuurde kennis tonen ----------
 function showContext(knowledge, nEx = 0) {
-  if (knowledge === null) { $('ctxSummary').textContent = ''; $('ctxDocs').textContent = 'Nog geen antwoord gemaakt. Hier zie je straks welke documenten de AI heeft gekregen.'; $('ctxView').hidden = true; return; }
+  if (knowledge === null || knowledge === 'onbekend') {
+    $('ctxSummary').textContent = '';
+    $('ctxDocs').textContent = knowledge === 'onbekend'
+      ? 'Dit antwoord komt uit de geschiedenis; welke documenten toen zijn meegestuurd is niet bewaard. Klik op "Antwoord maken" voor een nieuw antwoord.'
+      : 'Hier zie je welke documenten uit de kennisbank de AI bij het laatste antwoord heeft gekregen. Dat verschijnt zodra je op "Antwoord maken" klikt.';
+    $('ctxView').hidden = true; return;
+  }
   const full = [], frag = new Map();
   for (const m of (knowledge || '').matchAll(/^### (.+?)( \(fragment\))?$/gm)) {
     if (m[2]) frag.set(m[1], (frag.get(m[1]) || 0) + 1); else full.push(m[1]);
@@ -1653,7 +1659,7 @@ function renderHistory() {
 $('histList').addEventListener('click', e => {
   const n = e.target.closest('[data-h]'); if (!n) return;
   const h = history[+n.dataset.h];
-  $('email').value = h.email; $('note').value = h.note; $('reply').value = h.reply; convo = null;
+  $('email').value = h.email; $('note').value = h.note; $('reply').value = h.reply; convo = null; showContext('onbekend');
   setStatus($('genStatus'), 'Oud antwoord geopend. Klik "Antwoord maken" om opnieuw te genereren.'); renderChecks();
   go('compose');
 });
