@@ -115,6 +115,7 @@ pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); bord
 .mailview .mv-quote { margin-top: 10px; border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); white-space: pre-wrap; font-size: 14px; }
 .mailview .mv-quote .mv-intro { font-weight: 700; display: block; margin: 10px 0 4px; }
 .newmail { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; background: var(--accent-soft); padding: 10px 12px; font-size: 14px; }
+.subjrow { align-items: center; margin-bottom: 10px; flex-wrap: nowrap; } .subjrow label { margin: 0; flex: 0 0 auto; } .subjrow input { flex: 1 1 auto; min-width: 0; } .subjrow .btn { flex: 0 0 auto; padding: 6px 12px; font-size: 13px; }
 .newmail .row { margin-top: 6px; } .newmail input { background: var(--panel); }
 .orderbox { margin: 0 0 16px; border: 1px solid var(--line); border-left: 4px solid var(--brand-blue); border-radius: 10px; padding: 12px 16px; background: var(--panel); font-size: 14px; }
 .orderbox .ord + .ord { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
@@ -267,6 +268,7 @@ body.locked > header, body.locked > main { display: none; }
 
       <div class="card">
         <h2>Conceptantwoord</h2>
+        <div class="row subjrow"><label for="replySubject">Onderwerp</label><input id="replySubject" placeholder="Onderwerp van je mail" autocomplete="off"><button class="btn" type="button" id="copySubject" title="Onderwerp kopiëren">Kopiëren</button></div>
         <label for="reply">Je kunt de tekst hieronder zelf aanpassen voordat je hem kopieert</label>
         <textarea id="reply" placeholder="Hier verschijnt het antwoord…"></textarea>
         <div class="actions">
@@ -480,7 +482,7 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.21.5';
+const APP_VERSION = '1.22.0';
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'v' + APP_VERSION; });
 
 // ---------- Kluis: alle gegevens versleuteld met het wachtwoord (PBKDF2 + AES-256-GCM) ----------
@@ -1413,7 +1415,7 @@ function makeNewMail() {
   if (!isConfigured()) { go('settings'); setStatus($('setStatus'), 'Stel eerst een AI-model in.', true); return; }
   const note = $('note').value.trim(), own = note.replace(/\n*— Info uit de webshop[^\n]*(\n[^\n]*)?/g, '').trim();
   if (!own) { setStatus($('genStatus'), 'Typ eerst in het notitieveld wat je de klant wilt laten weten.', true); $('note').focus(); return; }
-  const subject = ($('nmSubject') && $('nmSubject').value.trim()) || '';
+  const subject = $('replySubject').value.trim();
   const knowledge = selectKnowledge(note); showContext(knowledge, 0);
   const user = `NIEUW BERICHT AAN DE KLANT (dit is geen antwoord op een mail van de klant)\nKlant: ${newMail.name || '(naam onbekend)'}\nOnderwerp: ${subject}\n\nWAT DE MEDEWERKER DE KLANT WIL LATEN WETEN (volg dit):\n${mask(note)}\n\nSchrijf deze nieuwe e-mail aan de klant, met een passende aanhef. Geef alleen de tekst van de mail, zonder onderwerpregel.`;
   const model = $('cheap').checked && cheapModel() ? cheapModel() : settings.model;
@@ -1434,6 +1436,19 @@ $('refineBtn').addEventListener('click', () => {
 $('refine').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('refineBtn').click(); } });
 $('quickChips').addEventListener('click', e => { if (e.target.dataset.r) refine(e.target.dataset.r); });
 $('stopBtn').addEventListener('click', () => controller && controller.abort());
+// Onderwerp van een antwoord: 'Re: ' ervoor (niet dubbel)
+const reSubject = subj => { const t = String(subj || '').trim(); return !t ? '' : /^\s*(re|antw|aw|sv)\s*:/i.test(t) ? t : 'Re: ' + t; };
+$('copySubject').addEventListener('click', async () => {
+  const v = $('replySubject').value.trim(); if (!v) return;
+  try { await navigator.clipboard.writeText(v); } catch { $('replySubject').select(); document.execCommand('copy'); }
+  const b = $('copySubject'); b.textContent = '✓ Gekopieerd'; setTimeout(() => { b.textContent = 'Kopiëren'; }, 1500);
+});
+// Geplakte mail zonder onderwerp ingevuld: neem 'Onderwerp:' / 'Subject:' uit de geplakte tekst
+$('email').addEventListener('input', () => {
+  if ($('replySubject').value.trim() || currentMsg || newMail) return;
+  const m = $('email').value.match(/^\s*(?:onderwerp|subject|betreft)\s*:\s*(.+)$/im);
+  if (m) $('replySubject').value = reSubject(m[1]);
+});
 // Links als [tekst](https://...) worden bij het plakken in Outlook klikbaar; als platte tekst "tekst: adres"
 const MD_LINK = /\[([^\]\n]{1,200})\]\((https:\/\/[^\s)]+)\)/g;
 async function copyRich(text) {
@@ -1606,7 +1621,7 @@ $('checks').addEventListener('click', e => {
   refine(`Verbeter het antwoord volgens de huisregels: ${fix.join('; ')}. Verwijder verboden woorden en herschrijf zinnen zonder streepjes (-, –, —). Laat de rest van de inhoud gelijk.`);
 });
 $('clearBtn').addEventListener('click', () => {
-  $('email').value = $('note').value = $('reply').value = ''; convo = null; currentMsg = null; foundOrders = []; foundRaw = []; showOrders(); hideMailView(); endNewMail();
+  $('email').value = $('note').value = $('reply').value = $('replySubject').value = ''; convo = null; currentMsg = null; foundOrders = []; foundRaw = []; showOrders(); hideMailView(); endNewMail();
   showContext(null); $('checks').hidden = true; setStatus($('genStatus'), ''); renderMail();
   document.querySelectorAll('.mail.sel').forEach(x => x.classList.remove('sel'));
 });
@@ -1757,6 +1772,7 @@ $('inboxList').addEventListener('click', async e => {
     $('email').value = `Van: ${fromLabel(full.from)}\nOnderwerp: ${full.subject || ''}\n\n${full.text}` +
       (full.attachments && full.attachments.length ? `\n\n(Bijlagen: ${full.attachments.join(', ')})` : '');
     $('note').value = ''; $('reply').value = ''; convo = null; $('checks').hidden = true; showContext(null);
+    $('replySubject').value = reSubject(full.subject);
     currentMsg = { uid: full.uid, subject: full.subject, from: (full.replyTo && full.replyTo[0] && full.replyTo[0].address) || (full.from && full.from.address) || '' };
     document.querySelectorAll('.mail.sel').forEach(x => x.classList.remove('sel')); row.classList.add('sel');
     renderMail(); setStatus(st, `Ingeladen: "${full.subject || ''}". Klik op "Antwoord maken".`);
@@ -1770,7 +1786,7 @@ $('draftBtn').addEventListener('click', async () => {
   if (newMail && text) {
     setStatus(st, 'Concept opslaan in je mailbox…');
     try {
-      const r = await window.mailApi('newdraft', { to: newMail.to, toName: newMail.name, subject: ($('nmSubject') && $('nmSubject').value.trim()) || 'Bericht van Adviesdrogisterij.nl', text, signatureHtml: mailSig, signatureText: sigToText(mailSig) });
+      const r = await window.mailApi('newdraft', { to: newMail.to, toName: newMail.name, subject: $('replySubject').value.trim() || 'Bericht van Adviesdrogisterij.nl', text, signatureHtml: mailSig, signatureText: sigToText(mailSig) });
       setStatus(st, `Concept "${r.subject}" staat klaar in de map "${r.folder}" (aan ${r.to}). Open je mailprogramma om het te verzenden.`);
     } catch (e) { setStatus(st, 'Concept opslaan mislukt: ' + e.message, true); }
     return;
@@ -1780,7 +1796,7 @@ $('draftBtn').addEventListener('click', async () => {
   if (n && !confirm(`Er ${n === 1 ? 'staat nog 1 controlepunt' : 'staan nog ' + n + ' controlepunten'} open. Toch als concept in je mailbox zetten?`)) return;
   setStatus(st, 'Concept opslaan in je mailbox…');
   try {
-    const r = await window.mailApi('draft', { uid: currentMsg.uid, text, signatureHtml: mailSig, signatureText: sigToText(mailSig) });
+    const r = await window.mailApi('draft', { uid: currentMsg.uid, subject: $('replySubject').value.trim(), text, signatureHtml: mailSig, signatureText: sigToText(mailSig) });
     const learned = learnFromCopy();
     markHandled(currentMsg.uid, 'concept');
     setStatus(st, `Concept staat klaar in de map "${r.folder}" (aan ${r.to}). Open je mailprogramma om het te verzenden.` + (learned ? ' Onthouden als voorbeeld.' : ''));
@@ -1913,9 +1929,9 @@ function startNewMail(i) {
   $('email').hidden = true; $('mailCardTitle').textContent = 'Nieuwe mail aan klant';
   $('newMailBox').hidden = false;
   $('newMailBox').innerHTML = `<b>Aan:</b> ${esc(name ? name + ' <' + o._email + '>' : o._email)}
-    <div class="row"><label for="nmSubject" style="margin:0;flex:0 0 auto">Onderwerp</label><input id="nmSubject" value="${esc(nr ? 'Uw bestelling #' + nr : 'Bericht van Adviesdrogisterij.nl')}"></div>
     <div class="actions" style="margin-top:8px"><button class="btn" type="button" id="nmCancel" style="padding:4px 12px;font-size:13px">Annuleren</button></div>`;
   $('nmCancel').addEventListener('click', endNewMail);
+  $('replySubject').value = nr ? 'Uw bestelling #' + nr : 'Bericht van Adviesdrogisterij.nl';
   $('noteLabel').textContent = 'Wat wil je de klant laten weten?';
   $('note').placeholder = 'Bijv.: een artikel is niet leverbaar; we leveren de rest nu en storten € 8 terug.';
   const t = SHOP_HEAD + '\n' + newMail.summary;
@@ -1942,7 +1958,7 @@ if (window.ResizeObserver) { // ook binnen de blokken, want de kaarten zelf rekk
 }
 function endNewMail() {
   if (!newMail) return;
-  newMail = null; $('newMailBox').hidden = true; $('newMailBox').innerHTML = ''; $('email').hidden = false;
+  newMail = null; $('replySubject').value = ''; $('newMailBox').hidden = true; $('newMailBox').innerHTML = ''; $('email').hidden = false;
   $('mailCardTitle').textContent = 'Mail van de klant';
   $('noteLabel').textContent = 'Jouw notitie voor het antwoord (optioneel)'; $('note').classList.remove('big'); $('note').style.height = ''; queueFit();
   $('note').placeholder = 'Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123.';

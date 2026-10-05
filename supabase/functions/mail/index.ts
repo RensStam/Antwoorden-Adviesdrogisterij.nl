@@ -225,12 +225,12 @@ function cleanSignature(html: string) {
 }
 type Signature = { html?: string; text?: string };
 
-function buildReply(orig: Awaited<ReturnType<typeof readMessage>>, replyText: string, sig: Signature = {}) {
+function buildReply(orig: Awaited<ReturnType<typeof readMessage>>, replyText: string, sig: Signature = {}, ownSubject = '') {
   const fromAddr = env('MAIL_FROM') || env('IMAP_USER');
   const fromName = env('MAIL_FROM_NAME') || 'Adviesdrogisterij.nl';
   const to = orig.replyTo[0] || orig.from;
   if (!to.address) throw new UserError('Deze mail heeft geen afzenderadres; een concept kan niet worden gemaakt.');
-  const subject = /^\s*(re|antw|aw|sv)\s*:/i.test(orig.subject) ? orig.subject : `Re: ${orig.subject}`;
+  const subject = ownSubject || (/^\s*(re|antw|aw|sv)\s*:/i.test(orig.subject) ? orig.subject : `Re: ${orig.subject}`);
   const domain = (fromAddr.split('@')[1] || 'adviesdrogisterij.nl').replace(/[^a-z0-9.-]/gi, '');
   const refs = [orig.references, orig.messageId].filter(Boolean).join(' ').trim();
   let when = '';
@@ -292,11 +292,11 @@ function buildNew(to: string, toName: string, subject: string, text: string, sig
   ].join('\r\n');
 }
 
-async function makeDraft(c: ImapFlow, uid: number, replyText: string, sig: Signature) {
+async function makeDraft(c: ImapFlow, uid: number, replyText: string, sig: Signature, ownSubject = '') {
   const orig = await readMessage(c, uid);
   const folder = await draftsPath(c);
-  await c.append(folder, buildReply(orig, replyText, sig), ['\\Draft', '\\Seen'], new Date());
-  return { ok: true, folder, to: (orig.replyTo[0] || orig.from).address, subject: orig.subject };
+  await c.append(folder, buildReply(orig, replyText, sig, ownSubject), ['\\Draft', '\\Seen'], new Date());
+  return { ok: true, folder, to: (orig.replyTo[0] || orig.from).address, subject: ownSubject || orig.subject };
 }
 
 // ---------- OpenAI-kosten (live, via de officiële Costs API; alleen lezen) ----------
@@ -351,7 +351,7 @@ Deno.serve(async (req) => {
       return json({ messages: await withImap((c) => listInbox(c, !!body.unreadOnly, limit)) });
     }
     if (action === 'newdraft') {
-      const to = String(body.to || '').trim(), subject = String(body.subject || '').trim().slice(0, 200), text = String(body.text || '').trim();
+      const to = String(body.to || '').trim(), subject = String(body.subject || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 200), text = String(body.text || '').trim();
       if (!/^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(to)) throw new UserError('Ongeldig mailadres van de ontvanger.');
       if (!subject) throw new UserError('Vul een onderwerp in.');
       if (!text || text.length > 50000) throw new UserError('Het bericht is leeg of te lang.');
@@ -370,7 +370,8 @@ Deno.serve(async (req) => {
       if (!text) throw new UserError('Het antwoord is leeg.');
       if (text.length > 50000) throw new UserError('Het antwoord is te lang.');
       const sig: Signature = { html: String(body.signatureHtml || ''), text: String(body.signatureText || '') };
-      return json(await withImap((c) => makeDraft(c, uid, text, sig)));
+      const subject = String(body.subject || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 200);
+      return json(await withImap((c) => makeDraft(c, uid, text, sig, subject)));
     }
     throw new UserError('Onbekende actie.');
   } catch (e) {
