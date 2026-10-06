@@ -67,6 +67,9 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); ou
 #note.big { min-height: 460px; line-height: 1.5; }
 #reply { min-height: 460px; }
 #instructions { min-height: 420px; font-size: 14px; }
+#instructions[readonly] { background: var(--bg); color: var(--muted); }
+.instrlock { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; font-size: 14px; background: var(--accent-soft); border: 1px solid var(--line); }
+.instrlock.warn { background: var(--warn-soft); } .instrlock input { flex: 1 1 200px; max-width: 280px; margin: 0; } .instrlock .btn { padding: 5px 12px; font-size: 13px; }
 .sigbox { min-height: 100px; max-height: 320px; overflow: auto; background: #fff; color: #1c1e1f; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: 11pt Calibri, Arial, sans-serif; }
 .sigbox:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -329,6 +332,7 @@ body.locked > header, body.locked > main { display: none; }
       <div class="actions"><button class="btn" id="sigClear" type="button">Handtekening wissen</button></div>
       <div class="status" id="sigStatus"></div>
       <label for="instructions">Instructies</label>
+      <div class="instrlock" id="instrLock" hidden></div>
       <textarea id="instructions"></textarea>
       <div class="actions">
         <button class="btn" id="loadInstr">Instructiebestand laden (.json, .docx, .txt)</button>
@@ -497,8 +501,8 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.28.0';       // technisch nummer (voor de updatecontrole)
-const APP_DATE = '2026-10-06 09:38'; // wanneer deze versie online kwam (dit ziet de gebruiker)
+const APP_VERSION = '1.29.0';       // technisch nummer (voor de updatecontrole)
+const APP_DATE = '2026-10-06 09:42'; // wanneer deze versie online kwam (dit ziet de gebruiker)
 const fmtAppDate = d => { const t = new Date(d.replace(' ', 'T')); return isNaN(t) ? d : t.toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'bijgewerkt ' + fmtAppDate(APP_DATE); el.title = 'Versie ' + APP_VERSION; });
 
@@ -517,6 +521,13 @@ const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 const hex = buf => [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
 const $ = id => document.getElementById(id);
 let key = null, salt = null, iter = ITER, token = null, version = 0, saveTimer = null, saving = false;
+let locked = null, adminTok = null, adminTimer = null; // beveiligd vak (instructies) en beheertoegang van deze sessie
+// Het beveiligde vak (alleen met het beheerderswachtwoord op te slaan) gaat voor wat er in de gewone kluis staat
+async function applyLocked(res) {
+  locked = null;
+  if (res && res.locked) { try { locked = await decrypt(res.locked); } catch { locked = null; } }
+  if (locked && typeof locked.instructions === 'string') window.VAULT.instructions = locked.instructions;
+}
 const dirty = new Set();
 
 // Lokale kluis (oude opzet): sleutel rechtstreeks uit het wachtwoord
@@ -635,7 +646,7 @@ async function mergeRemote(localKeys) {
       remote.history = [...seen.values()].sort((a, b) => b.t - a.t).slice(0, 30);
     } else remote[k] = window.VAULT[k];
   }
-  window.VAULT = remote; version = res.version;
+  window.VAULT = remote; version = res.version; await applyLocked(res);
   if (window.onVaultReload) window.onVaultReload();
 }
 // Het wachtwoord is op een andere computer gewijzigd: deze sessie kan niet meer opslaan
@@ -650,7 +661,7 @@ async function refreshFromServer() {
   if (!SERVER || !key || saving || dirty.size) return;
   try {
     const res = await rpc('vault_load', { p_token: token, p_known_version: version });
-    if (res && res.data) { window.VAULT = await decrypt(res.data); version = res.version; if (window.onVaultReload) window.onVaultReload(); setSync('✓ Bijgewerkt vanaf server'); }
+    if (res && res.data) { window.VAULT = await decrypt(res.data); version = res.version; await applyLocked(res); if (window.onVaultReload) window.onVaultReload(); setSync('✓ Bijgewerkt vanaf server'); }
   } catch (e) { if (e.code === 'badpw') passwordChangedElsewhere(); }
 }
 
@@ -670,10 +681,39 @@ window.vaultChangePassword = async (pw, adminPw) => {
   const d = await deriveServer(pw, newSalt, ITER);
   const data = await encrypt(window.VAULT, d.aes);
   try {
-    version = await rpc('vault_rekey', { p_token: token, p_admin_token: at, p_salt: b64(newSalt), p_iter: ITER, p_new_token: d.token, p_data: data, p_version: version });
+    const args = { p_token: token, p_admin_token: at, p_salt: b64(newSalt), p_iter: ITER, p_new_token: d.token, p_data: data, p_version: version };
+    if (locked) args.p_locked = await encrypt(locked, d.aes); // beveiligd vak opnieuw versleutelen met de nieuwe sleutel
+    version = await rpc('vault_rekey', args);
   } catch (e) { if (/invalid_admin/.test(e.message)) throw new Error('Onjuist beheerderswachtwoord.'); throw e; }
   salt = newSalt; iter = ITER; key = d.aes; token = d.token; secret = d.raw;
   if (remembered) await rememberSave();
+};
+// ---------- Beveiligde instructies ----------
+// 'local' | 'old-sql' | 'no-admin' | 'unprotected' (nog niet beveiligd) | 'closed' (alleen lezen) | 'open' (bewerken)
+window.vaultLockedState = () => {
+  if (!SERVER) return 'local';
+  if (info.admin === undefined) return 'old-sql';
+  if (!info.admin) return 'no-admin';
+  return adminTok ? 'open' : locked ? 'closed' : 'unprotected';
+};
+window.vaultAdminUnlock = async pw => {
+  const at = await adminToken(pw, unb64(info.admin_salt));
+  try { await rpc('vault_check_admin', { p_token: token, p_admin_token: at }); }
+  catch (e) {
+    if (/invalid_admin/.test(e.message)) throw new Error('Onjuist beheerderswachtwoord.');
+    if (/vault_check_admin|does not exist|schema cache|Could not find/i.test(e.message)) throw new Error('Voer eerst de nieuwe supabase/setup.sql uit in Supabase (SQL Editor → Run).');
+    throw e;
+  }
+  adminTok = at;
+  clearTimeout(adminTimer); adminTimer = setTimeout(() => { adminTok = null; if (window.onAdminClosed) window.onAdminClosed(); }, 15 * 60 * 1000); // na 15 min weer dicht
+};
+window.vaultAdminClose = () => { adminTok = null; clearTimeout(adminTimer); };
+window.vaultSaveLocked = async obj => {
+  if (!adminTok) throw new Error('Ontgrendel eerst met het beheerderswachtwoord.');
+  const nv = await rpc('vault_save_locked', { p_token: token, p_admin_token: adminTok, p_locked: await encrypt(obj) });
+  locked = obj; if (typeof obj.instructions === 'string') window.VAULT.instructions = obj.instructions;
+  if (nv === version + 1 && !dirty.size && !saving) version = nv; // anders voegt de volgende opslag samen
+  clearTimeout(adminTimer); adminTimer = setTimeout(() => { adminTok = null; if (window.onAdminClosed) window.onAdminClosed(); }, 15 * 60 * 1000);
 };
 window.vaultSetAdmin = async adminPw => {
   const aSalt = crypto.getRandomValues(new Uint8Array(16));
@@ -764,7 +804,7 @@ $('lockForm').addEventListener('submit', async e => {
       const d = await deriveServer(pw, salt, iter);
       const res = await rpc('vault_load', { p_token: d.token, p_known_version: null });
       key = d.aes; token = d.token; version = res.version; secret = d.raw;
-      window.VAULT = await decrypt(res.data);
+      window.VAULT = await decrypt(res.data); await applyLocked(res);
     } else {
       // Nieuw, of bestaande gegevens van deze computer overzetten
       if (mode === 'migrate') {
@@ -829,7 +869,7 @@ async function tryRemembered() {
       const d = await fromServerRaw(raw);
       const res = await rpc('vault_load', { p_token: d.token, p_known_version: null });
       key = d.aes; token = d.token; version = res.version; secret = raw;
-      window.VAULT = await decrypt(res.data);
+      window.VAULT = await decrypt(res.data); await applyLocked(res);
     } else {
       salt = unb64(localVault.salt); iter = localVault.iter || ITER;
       const k = await aesFromRaw(raw);
@@ -1017,7 +1057,53 @@ $('testBtn').addEventListener('click', async () => {
 // ---------- instructies ----------
 $('instructions').value = instructions;
 $('signature').value = signature;
-$('instructions').addEventListener('input', e => { instructions = e.target.value; store.set('instructions', instructions); setStatus($('instrStatus'), 'Opgeslagen.'); });
+$('instructions').addEventListener('input', e => setInstructions(e.target.value, true));
+// Instructies opslaan: beveiligd (alleen met beheerderswachtwoord) of gewoon, afhankelijk van de instelling
+let instrTimer = null;
+function setInstructions(t, typing) {
+  const stt = window.vaultLockedState();
+  if (stt === 'closed') { $('instructions').value = instructions; setStatus($('instrStatus'), 'De instructies zijn beveiligd. Ontgrendel eerst met het beheerderswachtwoord.', true); return false; }
+  instructions = t; if (!typing) $('instructions').value = t;
+  if (stt === 'open') {
+    clearTimeout(instrTimer); setStatus($('instrStatus'), 'Beveiligd opslaan…');
+    instrTimer = setTimeout(async () => {
+      try { await window.vaultSaveLocked({ instructions }); setStatus($('instrStatus'), '🔒 Beveiligd opgeslagen.'); }
+      catch (err) { setStatus($('instrStatus'), 'Opslaan mislukt: ' + err.message, true); renderInstrLock(); }
+    }, typing ? 1000 : 0);
+  } else { store.set('instructions', instructions); setStatus($('instrStatus'), 'Opgeslagen.'); }
+  return true;
+}
+function renderInstrLock() {
+  const el = $('instrLock'), stt = window.vaultLockedState();
+  $('instructions').readOnly = stt === 'closed'; $('loadInstr').disabled = $('resetInstr').disabled = stt === 'closed';
+  el.classList.toggle('warn', stt === 'unprotected' || stt === 'no-admin' || stt === 'old-sql');
+  const pwBox = (label) => `<input type="password" id="instrAdminPw" placeholder="Beheerderswachtwoord" autocomplete="off"><button class="btn primary" type="button" id="instrAdminGo">${label}</button>`;
+  el.hidden = stt === 'local';
+  el.innerHTML = {
+    'no-admin': '⚠ Iedereen met het gewone wachtwoord kan de instructies wijzigen. Stel bij <b>Instellingen</b> een beheerderswachtwoord in om ze te beveiligen.',
+    'old-sql': '⚠ Om de instructies te beveiligen: voer de nieuwe <b>supabase/setup.sql</b> uit in Supabase (SQL Editor → Run).',
+    unprotected: '🔓 De instructies zijn nog niet beveiligd. ' + pwBox('Beveiligen'),
+    closed: '🔒 Beveiligd: alleen te wijzigen met het beheerderswachtwoord. ' + pwBox('Ontgrendelen om te bewerken'),
+    open: '🔓 Ontgrendeld: je wijzigingen worden beveiligd opgeslagen. <button class="btn" type="button" id="instrAdminClose">Vergrendelen</button>',
+  }[stt] || '';
+  if ($('instrAdminGo')) {
+    const go = async () => {
+      const pw = $('instrAdminPw').value; if (!pw) return;
+      $('instrAdminGo').disabled = true; setStatus($('instrStatus'), 'Controleren…');
+      try {
+        await window.vaultAdminUnlock(pw);
+        if (stt === 'unprotected') { await window.vaultSaveLocked({ instructions }); window.vaultAdminClose(); setStatus($('instrStatus'), '🔒 De instructies zijn nu beveiligd met het beheerderswachtwoord.'); }
+        else setStatus($('instrStatus'), 'Ontgrendeld. Na 15 minuten zonder opslaan gaat het slot er weer vanzelf op.');
+      } catch (err) { setStatus($('instrStatus'), err.message, true); }
+      renderInstrLock();
+    };
+    $('instrAdminGo').addEventListener('click', go);
+    $('instrAdminPw').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+  }
+  if ($('instrAdminClose')) $('instrAdminClose').addEventListener('click', () => { window.vaultAdminClose(); setStatus($('instrStatus'), '🔒 Weer vergrendeld.'); renderInstrLock(); });
+}
+window.onAdminClosed = () => renderInstrLock();
+renderInstrLock();
 $('signature').addEventListener('input', e => { signature = e.target.value; store.set('signature', signature); });
 // Handtekening voor concepten (HTML, bijv. geplakt uit Outlook). Opschonen: geen scripts, alleen https-plaatjes.
 function cleanSig(html) {
@@ -1063,15 +1149,13 @@ $('instrFile').addEventListener('change', async e => {
     let t = (await readAny(f)).trim();
     if (/\.json$/i.test(f.name)) t = JSON.stringify(JSON.parse(t), null, 1);
     if (!confirm(`De huidige instructies vervangen door "${f.name}"?`)) return;
-    instructions = t; $('instructions').value = t; store.set('instructions', t);
-    setStatus($('instrStatus'), `"${f.name}" geladen (${t.length.toLocaleString('nl-NL')} tekens).`);
+    if (setInstructions(t)) setStatus($('instrStatus'), `"${f.name}" geladen (${t.length.toLocaleString('nl-NL')} tekens).`);
   } catch (err) { setStatus($('instrStatus'), 'Kon bestand niet lezen: ' + err.message, true); }
   e.target.value = '';
 });
 $('resetInstr').addEventListener('click', () => {
   if (!confirm('Je eigen instructies overschrijven met de standaardtekst?')) return;
-  instructions = DEFAULT_INSTRUCTIONS; $('instructions').value = instructions; store.set('instructions', instructions);
-  setStatus($('instrStatus'), 'Standaardinstructies teruggezet.');
+  if (setInstructions(DEFAULT_INSTRUCTIONS)) setStatus($('instrStatus'), 'Standaardinstructies teruggezet.');
 });
 
 // ---------- kennisbank ----------
@@ -2127,14 +2211,15 @@ $('importFile').addEventListener('change', async e => {
     const d = JSON.parse(await f.text());
     if (!confirm('Huidige instructies en kennisbank vervangen door de back-up?')) return;
     if (d.settings) settings = Object.assign(settings, d.settings, { apiKey: settings.apiKey });
-    if (d.instructions) instructions = d.instructions;
+    const instrLocked = window.vaultLockedState() === 'closed';
+    if (d.instructions && !instrLocked) setInstructions(d.instructions);
     if (d.signature) signature = d.signature;
     if (typeof d.mailSig === 'string') { mailSig = d.mailSig; store.set('mailSig', mailSig); $('mailSig').innerHTML = cleanSig(mailSig).html; }
     if (Array.isArray(d.kb)) kb = d.kb;
     if (Array.isArray(d.lessons)) { lessons = d.lessons; store.set('lessons', lessons); renderLearned(); }
-    store.set('settings', settings); store.set('instructions', instructions); store.set('signature', signature); saveKb();
-    $('instructions').value = instructions; $('signature').value = signature; renderSettings();
-    setStatus($('bkStatus'), 'Back-up teruggezet.');
+    store.set('settings', settings); store.set('signature', signature); saveKb();
+    $('signature').value = signature; renderSettings();
+    setStatus($('bkStatus'), 'Back-up teruggezet.' + (d.instructions && instrLocked ? ' De instructies zijn niet vervangen: die zijn beveiligd (ontgrendel ze bij Instructies met het beheerderswachtwoord en zet de back-up dan opnieuw terug).' : ''));
   } catch (err) { setStatus($('bkStatus'), 'Kon back-up niet lezen: ' + err.message, true); }
   e.target.value = '';
 });
@@ -2175,7 +2260,7 @@ $('setAdmin').addEventListener('click', async () => {
   if (a.length < window.MIN_PW) { setStatus(st, `Gebruik minimaal ${window.MIN_PW} tekens.`, true); return; }
   if (a !== b) { setStatus(st, 'De wachtwoorden zijn niet gelijk.', true); return; }
   setStatus(st, 'Even geduld…');
-  try { await window.vaultSetAdmin(a); $('apw1').value = $('apw2').value = ''; renderAdmin(); setStatus(st, 'Beheerderswachtwoord ingesteld. Bewaar het goed: alleen hiermee kan het wachtwoord nog worden gewijzigd.'); }
+  try { await window.vaultSetAdmin(a); $('apw1').value = $('apw2').value = ''; renderAdmin(); renderInstrLock(); setStatus(st, 'Beheerderswachtwoord ingesteld. Bewaar het goed: alleen hiermee kan het wachtwoord nog worden gewijzigd.'); }
   catch (e) { setStatus(st, 'Mislukt: ' + e.message, true); }
 });
 $('chPw').addEventListener('click', async () => {
@@ -2198,6 +2283,7 @@ window.onVaultReload = () => {
   examples = store.get('examples', []); lessons = store.get('lessons', []); renderLearned(); renderMail();
   handled = store.get('handled', {}); renderInbox();
   if (document.activeElement !== $('instructions')) $('instructions').value = instructions;
+  renderInstrLock();
   if (document.activeElement !== $('signature')) $('signature').value = signature;
   mailSig = store.get('mailSig', ''); if (document.activeElement !== $('mailSig')) $('mailSig').innerHTML = cleanSig(mailSig).html;
   renderSettings(); renderKb(); renderHistory();
