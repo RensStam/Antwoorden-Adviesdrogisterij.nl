@@ -384,8 +384,8 @@ body.locked > header, body.locked > main { display: none; }
       </div>
       <div class="card">
         <h2>Voorbeelden van goede antwoorden</h2>
-        <p class="note">Elke keer dat je op <b>Kopiëren</b> klikt, wordt de mail met jouw definitieve antwoord (inclusief je eigen aanpassingen) onthouden. Bij een nieuwe mail krijgt de AI de meest vergelijkbare voorbeelden mee, zodat de antwoorden steeds beter bij jouw stijl passen. Namen, mailadressen, telefoonnummers, IBANs, postcodes en bestelnummers worden daarbij verborgen.</p>
-        <label style="display:flex;gap:8px;align-items:center;color:var(--text);cursor:pointer"><input type="checkbox" id="learnOn" style="width:auto;margin:0"> Automatisch leren bij Kopiëren</label>
+        <p class="note">Elke keer dat je op <b>Kopiëren</b> of <b>Als concept in mailbox</b> klikt, wordt de mail met jouw definitieve antwoord (inclusief je eigen aanpassingen) onthouden, ook van collega's. Antwoorden met een open invulplek [AANVULLEN] worden niet onthouden; bij dezelfde mail telt alleen de nieuwste versie. Bij een nieuwe mail krijgt de AI de meest vergelijkbare voorbeelden mee, zodat de antwoorden steeds beter bij jouw stijl passen. Namen, mailadressen, telefoonnummers, IBANs, postcodes en bestelnummers worden daarbij verborgen.</p>
+        <label style="display:flex;gap:8px;align-items:center;color:var(--text);cursor:pointer"><input type="checkbox" id="learnOn" style="width:auto;margin:0"> Automatisch leren bij Kopiëren en Als concept</label>
         <p class="note" id="exCount"></p>
         <div id="exList" style="margin-top:8px"></div>
         <div class="actions"><button class="btn" id="exClear">Alle voorbeelden wissen</button></div>
@@ -503,8 +503,8 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.30.0';       // technisch nummer (voor de updatecontrole)
-const APP_DATE = '2026-10-06 09:53'; // wanneer deze versie online kwam (dit ziet de gebruiker)
+const APP_VERSION = '1.30.1';       // technisch nummer (voor de updatecontrole)
+const APP_DATE = '2026-10-06 10:01'; // wanneer deze versie online kwam (dit ziet de gebruiker)
 const fmtAppDate = d => { const t = new Date(d.replace(' ', 'T')); return isNaN(t) ? d : t.toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'bijgewerkt ' + fmtAppDate(APP_DATE); el.title = 'Versie ' + APP_VERSION; });
 
@@ -646,6 +646,14 @@ async function mergeRemote(localKeys) {
       const seen = new Map();
       [...(window.VAULT.history || []), ...(remote.history || [])].forEach(h => seen.set(h.t, h));
       remote.history = [...seen.values()].sort((a, b) => b.t - a.t).slice(0, 30);
+    } else if (k === 'examples' || k === 'lessons') {
+      // Twee computers leren tegelijk: beide lijsten samenvoegen (behalve wat hier net is verwijderd)
+      const gone = window.VAULT_REMOVED || new Set(), seen = new Map();
+      [...(window.VAULT[k] || []), ...(remote[k] || [])].forEach(x => { if (x && !gone.has(x.t) && !seen.has(x.t)) seen.set(x.t, x); });
+      let list = [...seen.values()];
+      if (k === 'examples') { const byMail = new Map(); list.sort((a, b) => b.t - a.t).forEach(x => { if (!byMail.has(x.email)) byMail.set(x.email, x); }); list = [...byMail.values()].slice(0, 150); }
+      else list.sort((a, b) => a.t - b.t);
+      remote[k] = list;
     } else remote[k] = window.VAULT[k];
   }
   window.VAULT = remote; version = res.version; await applyLocked(res);
@@ -1621,6 +1629,9 @@ const maskAlways = t => t.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[e-mail]')
   .replace(/\b[A-Z]{2}\d{2}\s?[A-Z]{4}(\s?\d{4}){2}\s?\d{2}\b/gi, '[IBAN]')
   .replace(/(\+31|0031|\b0)[\s-]?\d(?:[\s-]?\d){8}\b/g, '[telefoon]');
 const MAX_EXAMPLES = 150;
+// Verwijderde voorbeelden/regels onthouden, zodat ze bij samenvoegen met een andere computer niet terugkomen
+window.VAULT_REMOVED = window.VAULT_REMOVED || new Set();
+const forget = t => { if (t) window.VAULT_REMOVED.add(t); };
 // Namen (en adresregels onder de groet) uit een voorbeeld halen, zodat er geen gegevens van eerdere klanten
 // opnieuw naar de AI gaan. De naam komt uit de aanhef van het antwoord en de ondertekening van de klantmail.
 const NOT_NAMES = /^(klant|klanten|heer\/mevrouw|mevrouw\/heer|allen|team|lezer|customer|sir|madam|sir\/madam|\[klantnaam\])$/i;
@@ -1664,6 +1675,7 @@ function learnFromCopy() {
   // bestelgegevens niet onthouden: het blok uit de webshop (kopregel + samenvatting) weglaten
   const noteNoShop = stripShop($('note').value).split('\n').filter(l => !/^Gegevens uit de webshop:/i.test(l)).join('\n').trim();
   const ex = scrubNames({ t: Date.now(), email: maskAlways(email), note: maskAlways(noteNoShop), reply: maskAlways(reply) });
+  examples.filter(e => e.email === ex.email).forEach(e => forget(e.t));
   examples = examples.filter(e => e.email !== ex.email); // zelfde mail: nieuwste versie telt
   examples.unshift(ex); examples = examples.slice(0, MAX_EXAMPLES);
   store.set('examples', examples); renderLearned();
@@ -1702,11 +1714,11 @@ function renderLearned() {
     <div class="doc"><div style="min-width:0"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.email.replace(/\s+/g, ' ').slice(0, 120))}</div><div class="meta">${new Date(e.t).toLocaleString('nl-NL')}</div></div>
     <div class="btns"><button class="btn" data-delex="${i}">Verwijderen</button></div></div>`).join('') + (examples.length > 50 ? `<p class="note">… en nog ${examples.length - 50} oudere.</p>` : '');
 }
-$('ruleList').addEventListener('click', e => { const i = e.target.dataset.delrule; if (i !== undefined && confirm('Deze regel verwijderen?')) { lessons.splice(+i, 1); store.set('lessons', lessons); renderLearned(); } });
-$('exList').addEventListener('click', e => { const i = e.target.dataset.delex; if (i !== undefined) { examples.splice(+i, 1); store.set('examples', examples); renderLearned(); } });
+$('ruleList').addEventListener('click', e => { const i = e.target.dataset.delrule; if (i !== undefined && confirm('Deze regel verwijderen?')) { forget(lessons[+i] && lessons[+i].t); lessons.splice(+i, 1); store.set('lessons', lessons); renderLearned(); } });
+$('exList').addEventListener('click', e => { const i = e.target.dataset.delex; if (i !== undefined) { forget(examples[+i] && examples[+i].t); examples.splice(+i, 1); store.set('examples', examples); renderLearned(); } });
 $('addRule').addEventListener('click', () => { const v = $('newRule').value.trim(); if (v) { addLesson(v); $('newRule').value = ''; } });
 $('learnOn').addEventListener('change', e => { settings.learn = e.target.checked; saveSettings(); });
-$('exClear').addEventListener('click', () => { if (confirm('Alle onthouden voorbeelden wissen?')) { examples = []; store.set('examples', examples); renderLearned(); } });
+$('exClear').addEventListener('click', () => { if (confirm('Alle onthouden voorbeelden wissen?')) { examples.forEach(x => forget(x.t)); examples = []; store.set('examples', examples); renderLearned(); } });
 
 // ---------- meegestuurde kennis tonen ----------
 function showContext(knowledge, nEx = 0) {
