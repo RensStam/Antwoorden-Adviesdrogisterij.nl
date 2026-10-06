@@ -306,6 +306,12 @@ body.locked > header, body.locked > main { display: none; }
           <p class="note" id="ctxDocs">Hier zie je welke documenten uit de kennisbank de AI bij het laatste antwoord heeft gekregen.</p>
           <pre class="ctx" id="ctxView" hidden></pre>
         </details>
+        <details style="margin-top:8px" id="sentBox" hidden>
+          <summary>Volledige tekst naar de AI bij het laatste antwoord <span id="sentSummary"></span></summary>
+          <p class="note" style="margin:6px 0">Precies wat er is verstuurd: je instructies, de kennisbank, de vaste regels en voorbeelden, en de mail met je notitie. Je instructies staan hier leesbaar opgemaakt; naar de AI gaan ze zonder extra spaties (zelfde inhoud).
+            <button class="btn" type="button" id="sentCopy" style="padding:3px 10px;font-size:12px">Kopiëren</button></p>
+          <pre class="ctx" id="sentView" style="max-height:480px"></pre>
+        </details>
       </div>
     </div>
   </section>
@@ -491,8 +497,8 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.27.4';       // technisch nummer (voor de updatecontrole)
-const APP_DATE = '2026-10-05 21:13'; // wanneer deze versie online kwam (dit ziet de gebruiker)
+const APP_VERSION = '1.28.0';       // technisch nummer (voor de updatecontrole)
+const APP_DATE = '2026-10-06 09:38'; // wanneer deze versie online kwam (dit ziet de gebruiker)
 const fmtAppDate = d => { const t = new Date(d.replace(' ', 'T')); return isNaN(t) ? d : t.toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'bijgewerkt ' + fmtAppDate(APP_DATE); el.title = 'Versie ' + APP_VERSION; });
 
@@ -1378,6 +1384,23 @@ const validModel = m => !!m && !/[\s\/:]/.test(m) && !/^https?/i.test(m);
 const cheapModel = () => (validModel(settings.cheapModel) ? settings.cheapModel : '') || (settings.provider === 'openai' && /^gpt-\d+(\.\d+)?$/.test(settings.model) ? settings.model + '-mini' : '');
 let convoModel = null;
 const nl = n => Number(n || 0).toLocaleString('nl-NL');
+// De volledige tekst die naar de AI gaat (alleen ter controle; leesbaar opgemaakt)
+const ROLE_NL = { system: 'INSTRUCTIES, KENNISBANK EN REGELS', user: 'VRAAG AAN DE AI', assistant: 'EERDER ANTWOORD VAN DE AI' };
+function showSent(messages) {
+  let pretty = null;
+  if (instructions.trim().startsWith('{')) { try { const o = JSON.parse(instructions); pretty = [JSON.stringify(o), JSON.stringify(o, null, 2)]; } catch {} }
+  const txt = messages.map(m => {
+    let c = String(m.content || '');
+    if (pretty && m.role === 'system') c = c.replace(pretty[0], pretty[1]);
+    return `══════ ${ROLE_NL[m.role] || m.role.toUpperCase()} ══════\n${c}`;
+  }).join('\n\n');
+  const chars = messages.reduce((n, m) => n + String(m.content || '').length, 0);
+  $('sentSummary').textContent = `(${nl(chars)} tekens)`;
+  $('sentView').textContent = txt; $('sentBox').hidden = false;
+}
+$('sentCopy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('sentView').textContent); $('sentCopy').textContent = '✓ Gekopieerd'; setTimeout(() => { $('sentCopy').textContent = 'Kopiëren'; }, 1500); } catch {}
+});
 // Verbruik van het laatste antwoord duidelijk onder het concept tonen
 function showUsage(u, model) {
   const bar = $('usageBar');
@@ -1398,7 +1421,7 @@ function trackUsage(u) {
   return u;
 }
 async function run(messages, model = convoModel || settings.model) {
-  convoModel = model;
+  convoModel = model; showSent(messages);
   const out = $('reply'), st = $('genStatus');
   out.value = ''; setStatus(st, 'Bezig met schrijven…');
   $('genBtn').disabled = $('refineBtn').disabled = true; $('stopBtn').hidden = false;
@@ -1587,7 +1610,7 @@ $('exClear').addEventListener('click', () => { if (confirm('Alle onthouden voorb
 function showContext(knowledge, nEx = 0) {
   // Alleen tonen als bekend is wat er is meegestuurd (dus na 'Antwoord maken'); anders verbergen
   $('ctxBox').hidden = knowledge === null || knowledge === 'onbekend';
-  if ($('ctxBox').hidden) { $('usageBar').hidden = true; return; }
+  if ($('ctxBox').hidden) { $('usageBar').hidden = true; $('sentBox').hidden = true; return; }
   const full = [], frag = new Map();
   for (const m of (knowledge || '').matchAll(/^### (.+?)( \(fragment\))?$/gm)) {
     if (m[2]) frag.set(m[1], (frag.get(m[1]) || 0) + 1); else full.push(m[1]);
