@@ -662,7 +662,11 @@ async function mergeRemote(localKeys) {
   for (const k of localKeys) {
     if (k === 'history') {
       const seen = new Map();
-      [...(remote.history || []), ...(window.VAULT.history || [])].forEach(h => { if (!(window.VAULT_REMOVED && window.VAULT_REMOVED.has(h.t))) seen.set(h.t, h); }); // eigen (bewerkte) versie wint
+      // per antwoord de nieuwste versie (u = laatst bijgewerkt), van welke computer ook
+      [...(remote.history || []), ...(window.VAULT.history || [])].forEach(h => {
+        if (window.VAULT_REMOVED && window.VAULT_REMOVED.has(h.t)) return;
+        const cur = seen.get(h.t); if (!cur || (h.u || h.t) >= (cur.u || cur.t)) seen.set(h.t, h);
+      });
       remote.history = [...seen.values()].sort((a, b) => b.t - a.t).slice(0, 100);
     } else if (k === 'examples' || k === 'lessons') {
       // Twee computers leren tegelijk: beide lijsten samenvoegen (behalve wat hier net is verwijderd)
@@ -1898,7 +1902,7 @@ function saveHistory(reply) {
 }
 function updateHistory(t, patch, edited) {
   const h = history.find(x => x.t === t); if (!h) return false;
-  Object.assign(h, patch, edited ? { edited: Date.now() } : {}); store.set('history', history); renderHistory(); return true;
+  Object.assign(h, patch, { u: Date.now() }, edited ? { edited: Date.now() } : {}); store.set('history', history); renderHistory(); return true;
 }
 const HIST_STATE = { concept: '✓ concept in mailbox', gekopieerd: '✓ gekopieerd', bewerkt: '✎ bewerkt' };
 const dayLabel = t => { const d = new Date(t), n = new Date(); const k = x => x.toDateString();
