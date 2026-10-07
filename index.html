@@ -506,8 +506,8 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.32.0';       // technisch nummer (voor de updatecontrole)
-const APP_DATE = '2026-10-06 10:22'; // wanneer deze versie online kwam (dit ziet de gebruiker)
+const APP_VERSION = '1.32.1';       // technisch nummer (voor de updatecontrole)
+const APP_DATE = '2026-10-07 10:07'; // wanneer deze versie online kwam (dit ziet de gebruiker)
 const fmtAppDate = d => { const t = new Date(d.replace(' ', 'T')); return isNaN(t) ? d : t.toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'bijgewerkt ' + fmtAppDate(APP_DATE); el.title = 'Versie ' + APP_VERSION; });
 
@@ -2034,7 +2034,16 @@ function slimOrder(o) {
   return out.length ? out : Object.entries(o).slice(0, 12); // onbekende lijst: dan beperkt alles
 }
 // Leesbare samenvatting van een bestelling (door de app zelf gemaakt, zonder AI: direct en gratis)
+// NAW-gegevens van een bestelling (zelfde velden als in het overzicht)
+function orderNaw(o) {
+  const naam = [pick(o, /voornaam/i), pick(o, /achternaam/i)].filter(Boolean).join(' '), bedrijf = pick(o, /bedrijfsnaam/i);
+  const straat = pick(o, /afleverstraat/i), huisnr = [pick(o, /^aflevernummer$/i), pick(o, /toevoegsel/i)].filter(Boolean).join('-');
+  const regel1 = straat ? [straat, huisnr].filter(Boolean).join(' ') : pick(o, /^afleveradres$/i);
+  const regel2 = [pick(o, /afleverpostcode/i), pick(o, /afleverplaats/i)].filter(Boolean).join(' ');
+  return { naam: bedrijf ? bedrijf + (naam ? ' (t.a.v. ' + naam + ')' : '') : naam, adres: [regel1, regel2, pick(o, /^afleverland$/i)].filter(Boolean).join(', ') };
+}
 function orderSummary(o) {
+  const naw = orderNaw(o);
   const f = Object.fromEntries(slimOrder(o));
   const get = re => { const k = Object.keys(f).find(x => re.test(x)); return k ? f[k] : ''; };
   const euro = v => v ? '€ ' + String(v).replace('.', ',') : '';
@@ -2048,10 +2057,12 @@ function orderSummary(o) {
   const pay = [tstatus && nl(tstatus) !== st ? 'betaling: ' + nl(tstatus) : '', betaal ? 'via ' + (PAY_NL[betaal.toLowerCase()] || betaal) : ''].filter(Boolean).join(', ');
   const lines = [
     nr ? `Ordernummer: ${nr}` : '',
+    naw.naam ? `Naam: ${naw.naam}` : '',
+    naw.adres ? `Afleveradres: ${naw.adres}` : '',
     datum ? `Besteld op: ${datum}` : '',
     `Status: ${st || 'onbekend'}${credited ? ', gecrediteerd' : ''}${pay ? ' (' + pay + ')' : ''}`,
     bedrag ? `Orderbedrag: ${euro(bedrag)}${vk && vk !== '0.00' ? ' (incl. ' + euro(vk) + ' verzendkosten)' : ''}` : '',
-    `Verzending: ${tt ? 'track & trace ' + tt + ' (link: ' + ttLink(tt, pick(o, /^afleverland$/i) || land, pick(o, /afleverpostcode/i)) + ')' : 'nog geen track & trace'}${verzonden ? ', verzonden op ' + verzonden : ''}${methode ? ', ' + methode : ''}${get(/avondbezorging/i) ? ', avondbezorging' : ''}${plaats || land ? '; bezorgadres in ' + [plaats, land].filter(Boolean).join(', ') : ''}`,
+    `Verzending: ${tt ? 'track & trace ' + tt + ' (link: ' + ttLink(tt, pick(o, /^afleverland$/i) || land, pick(o, /afleverpostcode/i)) + ')' : 'nog geen track & trace'}${verzonden ? ', verzonden op ' + verzonden : ''}${methode ? ', ' + methode : ''}${get(/avondbezorging/i) ? ', avondbezorging' : ''}${!naw.adres && (plaats || land) ? '; bezorgadres in ' + [plaats, land].filter(Boolean).join(', ') : ''}`,
     factuur ? `Factuurnummer: ${factuur}` : '',
     opm ? `Opmerking bij de bestelling: ${opm}` : '',
     intern ? `Interne opmerking (alleen voor ons, niet letterlijk aan de klant noemen): ${intern}` : '',
