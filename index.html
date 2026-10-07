@@ -136,6 +136,12 @@ pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); bord
 .orderbox .oline .btn { flex: 0 0 auto; padding: 3px 10px; font-size: 12px; }
 .checks { margin-top: 12px; border-radius: 8px; padding: 10px 12px; background: var(--warn-soft); color: var(--warn); font-size: 14px; }
 .checks.ok { background: var(--accent-soft); color: var(--accent); }
+.shots { margin-top: 6px; } .shotdrop { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13px; color: var(--muted); cursor: pointer; background: var(--field); }
+.shotdrop:focus-visible, .shotdrop.over { outline: 2px solid var(--accent); }
+.shotlist { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; } .shotlist:empty { display: none; }
+.shot { position: relative; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--panel); }
+.shot img { display: block; height: 72px; width: auto; max-width: 160px; object-fit: cover; }
+.shot button { position: absolute; top: 2px; right: 2px; border: 0; border-radius: 50%; width: 22px; height: 22px; line-height: 20px; padding: 0; cursor: pointer; background: rgba(0,0,0,.6); color: #fff; font-size: 14px; }
 .usagebar { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
 .usagebar .chip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; background: var(--panel); color: var(--text); }
 .usagebar .chip b { font-weight: 700; } .usagebar .good { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); } .usagebar .low { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
@@ -251,6 +257,11 @@ body.locked > header, body.locked > main { display: none; }
         <textarea id="email" aria-label="Mail van de klant" placeholder="Plak hier de mail van de klant, of klik hierboven op een mail in de inbox."></textarea>
         <label for="note" id="noteLabel">Jouw notitie voor het antwoord (optioneel)</label>
         <textarea id="note" placeholder="Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123."></textarea>
+        <div class="shots">
+          <div class="shotdrop" id="shotDrop" tabindex="0" role="button" title="Klik om een afbeelding te kiezen">📎 Schermafbeelding meesturen: knip (Windows + Shift + S) en plak met <b>Ctrl + V</b>, of sleep een afbeelding hierheen</div>
+          <input type="file" id="shotFile" accept="image/*" multiple hidden>
+          <div class="shotlist" id="shotList"></div>
+        </div>
         <div class="row" style="margin-top:4px">
           <div>
             <label for="tone">Toon</label>
@@ -506,8 +517,8 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.32.1';       // technisch nummer (voor de updatecontrole)
-const APP_DATE = '2026-10-07 10:07'; // wanneer deze versie online kwam (dit ziet de gebruiker)
+const APP_VERSION = '1.33.0';       // technisch nummer (voor de updatecontrole)
+const APP_DATE = '2026-10-07 10:09'; // wanneer deze versie online kwam (dit ziet de gebruiker)
 const fmtAppDate = d => { const t = new Date(d.replace(' ', 'T')); return isNaN(t) ? d : t.toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'bijgewerkt ' + fmtAppDate(APP_DATE); el.title = 'Versie ' + APP_VERSION; });
 
@@ -1380,13 +1391,16 @@ async function chat(messages, onToken, model = settings.model) {
   let body;
   if (responses) {
     body = { model, instructions: messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n'),
-      input: messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })),
+      input: messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.images && m.images.length
+        ? [{ type: 'input_text', text: m.content }, ...m.images.map(u => ({ type: 'input_image', image_url: u }))] : m.content })),
       temperature: settings.temp, stream: true, store: false,
       // Vaste tekst (handleiding + kennisbank) 24 uur laten onthouden: daarop geeft OpenAI tot 90% korting
       prompt_cache_key: 'adviesdrogisterij-antwoorden', prompt_cache_retention: '24h' };
     if (/^(gpt-5|o\d)/.test(model)) body.reasoning = { effort: 'low' }; // sneller en zuiniger
   } else {
-    body = { model, messages, temperature: settings.temp, stream: true, stream_options: { include_usage: true } };
+    body = { model, messages: messages.map(m => m.images && m.images.length
+      ? { role: m.role, content: [{ type: 'text', text: m.content }, ...m.images.map(u => ({ type: 'image_url', image_url: { url: u } }))] }
+      : { role: m.role, content: m.content }), temperature: settings.temp, stream: true, stream_options: { include_usage: true } };
   }
   // Niet elk model kent elke instelling (bijv. temperatuur, redeneerniveau, streaming): weglaten en opnieuw proberen
   const skip = unsupported[model] || (unsupported[model] = new Set());
@@ -1512,6 +1526,41 @@ const validModel = m => !!m && !/[\s\/:]/.test(m) && !/^https?/i.test(m);
 const cheapModel = () => (validModel(settings.cheapModel) ? settings.cheapModel : '') || (settings.provider === 'openai' && /^gpt-\d+(\.\d+)?$/.test(settings.model) ? settings.model + '-mini' : '');
 let convoModel = null;
 const nl = n => Number(n || 0).toLocaleString('nl-NL');
+// ---------- Schermafbeeldingen meesturen (plakken, slepen of kiezen) ----------
+// Verkleind tot max. 1600 px en als JPEG: scherp genoeg om te lezen, en veel minder tokens. Max. 4 per antwoord.
+let shots = [];
+const SHOT_MAX = 4, SHOT_PX = 1600;
+const shotUrls = () => shots.map(x => x.url);
+const shotNote = () => shots.length ? `\n\nBIJGEVOEGD: ${shots.length} schermafbeelding${shots.length === 1 ? '' : 'en'} van de medewerker (bijv. van de bestelling, een foto of een foutmelding). Gebruik wat erop staat als informatie; noem geen interne gegevens die erop staan.` : '';
+async function addShot(file) {
+  if (!file || !/^image\//.test(file.type)) return;
+  if (shots.length >= SHOT_MAX) { setStatus($('genStatus'), `Maximaal ${SHOT_MAX} schermafbeeldingen per antwoord.`, true); return; }
+  try {
+    const bmp = await createImageBitmap(file), k = Math.min(1, SHOT_PX / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(bmp, 0, 0, c.width, c.height);
+    shots.push({ url: c.toDataURL('image/jpeg', 0.85) }); renderShots();
+    setStatus($('genStatus'), 'Schermafbeelding toegevoegd. Die gaat mee met "Antwoord maken".');
+  } catch { setStatus($('genStatus'), 'Kon de afbeelding niet lezen.', true); }
+}
+function renderShots() {
+  $('shotList').innerHTML = shots.map((x, i) => `<div class="shot"><img src="${x.url}" alt="Schermafbeelding ${i + 1}"><button type="button" data-delshot="${i}" title="Verwijderen" aria-label="Schermafbeelding verwijderen">×</button></div>`).join('');
+}
+function clearShots() { shots = []; renderShots(); }
+$('shotList').addEventListener('click', e => { const i = e.target.dataset.delshot; if (i !== undefined) { shots.splice(+i, 1); renderShots(); } });
+$('shotDrop').addEventListener('click', () => $('shotFile').click());
+$('shotDrop').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('shotFile').click(); } });
+$('shotFile').addEventListener('change', async e => { for (const f of e.target.files) await addShot(f); e.target.value = ''; });
+['dragover', 'dragenter'].forEach(t => $('shotDrop').addEventListener(t, e => { e.preventDefault(); $('shotDrop').classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => $('shotDrop').addEventListener(t, () => $('shotDrop').classList.remove('over')));
+$('shotDrop').addEventListener('drop', async e => { e.preventDefault(); for (const f of e.dataTransfer.files) await addShot(f); });
+// Ctrl+V met een afbeelding op het klembord, ergens op Antwoord maken (tekst plakken werkt gewoon zoals altijd)
+document.addEventListener('paste', async e => {
+  if (!document.querySelector('section[data-tab="compose"].active')) return;
+  const files = [...(e.clipboardData && e.clipboardData.items || [])].filter(it => it.kind === 'file' && /^image\//.test(it.type)).map(it => it.getAsFile());
+  if (!files.length) return;
+  e.preventDefault(); for (const f of files) await addShot(f);
+});
 // De volledige tekst die naar de AI gaat (alleen ter controle; leesbaar opgemaakt)
 const ROLE_NL = { system: 'INSTRUCTIES, KENNISBANK EN REGELS', user: 'VRAAG AAN DE AI', assistant: 'EERDER ANTWOORD VAN DE AI' };
 function showSent(messages) {
@@ -1525,7 +1574,7 @@ function showSent(messages) {
       if (hide) { if (pretty) c = c.split(pretty[0]).join(HIDDEN); if (instructions.trim()) c = c.split(instructions).join(HIDDEN); }
       else if (pretty) c = c.replace(pretty[0], pretty[1]);
     }
-    return `══════ ${ROLE_NL[m.role] || m.role.toUpperCase()} ══════\n${c}`;
+    return `══════ ${ROLE_NL[m.role] || m.role.toUpperCase()} ══════\n${c}${m.images && m.images.length ? `\n[+ ${m.images.length} schermafbeelding${m.images.length === 1 ? '' : 'en'} meegestuurd]` : ''}`;
   }).join('\n\n');
   const chars = messages.reduce((n, m) => n + String(m.content || '').length, 0);
   $('sentSummary').textContent = `(${nl(chars)} tekens)`;
@@ -1588,7 +1637,7 @@ $('genBtn').addEventListener('click', () => {
   showContext(knowledge, ex.length);
   const user = `MAIL VAN DE KLANT:\n"""\n${mask(compactMail(email))}\n"""\n\n${note ? `NOTITIE VAN DE MEDEWERKER (volg deze):\n${mask(note)}\n\n` : ''}Schrijf het antwoord op deze mail.`;
   const model = $('cheap').checked && cheapModel() ? cheapModel() : settings.model;
-  run([{ role: 'system', content: buildSystem(knowledge, ex) }, { role: 'user', content: user }], model);
+  run([{ role: 'system', content: buildSystem(knowledge, ex) }, { role: 'user', content: user + shotNote(), images: shotUrls() }], model);
 });
 
 function makeNewMail() {
@@ -1599,7 +1648,7 @@ function makeNewMail() {
   const knowledge = selectKnowledge(note); showContext(knowledge, 0);
   const user = `NIEUW BERICHT AAN DE KLANT (dit is geen antwoord op een mail van de klant)\nKlant: ${newMail.name || '(naam onbekend)'}\nOnderwerp: ${subject}\n\nWAT DE MEDEWERKER DE KLANT WIL LATEN WETEN (volg dit):\n${mask(note)}\n\nSchrijf deze nieuwe e-mail aan de klant, met een passende aanhef. Geef alleen de tekst van de mail, zonder onderwerpregel.`;
   const model = $('cheap').checked && cheapModel() ? cheapModel() : settings.model;
-  run([{ role: 'system', content: buildSystem(knowledge, []) }, { role: 'user', content: user }], model);
+  run([{ role: 'system', content: buildSystem(knowledge, []) }, { role: 'user', content: user + shotNote(), images: shotUrls() }], model);
 }
 function refine(instruction) {
   if (!convo) { setStatus($('genStatus'), 'Maak eerst een antwoord.', true); return; }
@@ -1808,7 +1857,7 @@ $('checks').addEventListener('click', e => {
 });
 $('clearBtn').addEventListener('click', () => {
   $('email').value = $('note').value = $('reply').value = $('replySubject').value = ''; convo = null; currentMsg = null; foundOrders = []; foundRaw = []; showOrders(); hideMailView(); endNewMail();
-  showContext(null); $('checks').hidden = true; setStatus($('genStatus'), ''); renderMail();
+  showContext(null); clearShots(); $('checks').hidden = true; setStatus($('genStatus'), ''); renderMail();
   document.querySelectorAll('.mail.sel').forEach(x => x.classList.remove('sel'));
 });
 document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && document.activeElement.closest('section[data-tab="compose"]')) $('genBtn').click(); });
@@ -1957,7 +2006,7 @@ $('inboxList').addEventListener('click', async e => {
     endNewMail(); renderMailView(full);
     $('email').value = `Van: ${fromLabel(full.from)}\nOnderwerp: ${full.subject || ''}\n\n${full.text}` +
       (full.attachments && full.attachments.length ? `\n\n(Bijlagen: ${full.attachments.join(', ')})` : '');
-    $('note').value = ''; $('reply').value = ''; convo = null; $('checks').hidden = true; showContext(null);
+    $('note').value = ''; $('reply').value = ''; convo = null; $('checks').hidden = true; showContext(null); clearShots();
     $('replySubject').value = reSubject(full.subject);
     currentMsg = { uid: full.uid, subject: full.subject, from: (full.replyTo && full.replyTo[0] && full.replyTo[0].address) || (full.from && full.from.address) || '' };
     document.querySelectorAll('.mail.sel').forEach(x => x.classList.remove('sel')); row.classList.add('sel');
