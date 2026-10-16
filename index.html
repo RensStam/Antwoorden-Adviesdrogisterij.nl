@@ -140,6 +140,7 @@ pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); bord
 .orderbox .oline .btn { flex: 0 0 auto; padding: 3px 10px; font-size: 12px; }
 .checks { margin-top: 12px; border-radius: 8px; padding: 10px 12px; background: var(--warn-soft); color: var(--warn); font-size: 14px; }
 .checks.ok { background: var(--accent-soft); color: var(--accent); }
+.orderdiag { margin-top: 6px; font-size: 13px; } .orderdiag summary { color: var(--muted); }
 .shots { margin-top: 6px; } .shotdrop { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13px; color: var(--muted); cursor: pointer; background: var(--field); }
 .shotdrop:focus-visible, .shotdrop.over { outline: 2px solid var(--accent); }
 .shotlist { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; } .shotlist:empty { display: none; }
@@ -239,6 +240,7 @@ body.locked > header, body.locked > main { display: none; }
         <button class="btn primary" id="orderSearch" type="button" style="flex:0 0 auto">🔎 Zoeken</button>
       </div>
       <div class="status" id="orderStatus" style="margin-top:4px"></div>
+      <details class="orderdiag" id="orderDiag" hidden><summary>Technische details (handig om naar Claude te sturen)</summary><pre class="ctx" id="orderDiagText"></pre></details>
     </div>
     <div class="card" id="inboxCard" hidden style="margin-bottom:16px">
       <div class="inboxHead">
@@ -521,8 +523,8 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.35.0';       // technisch nummer (voor de updatecontrole)
-const APP_DATE = '2026-10-07 10:33'; // wanneer deze versie online kwam (dit ziet de gebruiker)
+const APP_VERSION = '1.36.0';       // technisch nummer (voor de updatecontrole)
+const APP_DATE = '2026-10-16 14:41'; // wanneer deze versie online kwam (dit ziet de gebruiker)
 const fmtAppDate = d => { const t = new Date(d.replace(' ', 'T')); return isNaN(t) ? d : t.toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'bijgewerkt ' + fmtAppDate(APP_DATE); el.title = 'Versie ' + APP_VERSION; });
 
@@ -2132,14 +2134,14 @@ renderMail(); if (mailOn()) loadInbox();
 // De extensie leest alleen in het geopende beheer (adviesdrogisterij.nl/App) met de eigen login; er staat nergens een wachtwoord.
 const hasBridge = () => document.documentElement.dataset.adsBridge === '1';
 $('searchCard').hidden = !hasBridge();
-function askExtension(email, orders) {
+function askExtension(email, orders, auto) {
   return new Promise(ok => {
     const id = Math.random().toString(36).slice(2);
     const done = r => { clearTimeout(timer); window.removeEventListener('message', onMsg); ok(r); };
-    const timer = setTimeout(() => done({ error: 'De extensie gaf geen antwoord. Ververs het beheer en de app en probeer het opnieuw.' }), 15000);
+    const timer = setTimeout(() => done({ error: 'De extensie gaf geen antwoord. Ververs het beheer en de app en probeer het opnieuw.' }), 30000);
     function onMsg(e) { if (e.source === window && e.data && e.data.source === 'ads-ext' && e.data.id === id) done(e.data); }
     window.addEventListener('message', onMsg);
-    window.postMessage({ source: 'ads-app', type: 'lookup', id, email, orders }, location.origin);
+    window.postMessage({ source: 'ads-app', type: 'lookup', id, email, orders, auto: !!auto }, location.origin);
   });
 }
 function mailFacts() {
@@ -2342,21 +2344,40 @@ function endNewMail() {
   $('note').placeholder = 'Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123.';
   renderMail();
 }
+// Technische details van een zoekactie (alleen namen, aantallen en statussen; geen klantgegevens)
+function showOrderDiag(r) {
+  const d = r && r.diag, box = $('orderDiag');
+  if (!d) { box.hidden = true; return; }
+  const lines = [`Extensie ${r.ver || '?'} · tabbladen met beheer: ${d.tabs} · frames: ${d.frames} (met beheer: ${d.extFrames}) · geopende lijsten: ${d.lists} (${d.rows} regels)`,
+    `Adres beheer: ${d.adres || '-'}`];
+  (d.tries || []).forEach((t, i) => lines.push(`${i + 1}. ${t.wat}${t.veld ? ` via ${t.veld} (${t.type})` : ''}: ${t.status}${t.http ? ' ' + t.http : ''}${t.let ? ' – ' + t.let : ''} · ${t.rijen ?? 0} rij(en)${t.raak ? ', raak' : ''}${t.velden ? `\n   velden: ${t.velden}` : ''}`));
+  if (!(d.tries || []).length) lines.push('Geen gerichte zoekpoging gedaan' + (r.searched ? ' (nog geen bekend zoekveld; klik zelf op Zoeken of open één keer Beheer orders).' : '.'));
+  if (d.gestopt) lines.push('Gestopt: ' + d.gestopt);
+  $('orderDiagText').textContent = lines.join('\n'); box.hidden = false;
+}
 async function findOrder(auto, query) {
   if (!hasBridge()) return;
   let { email, orders } = query ? { email: '', orders: [] } : mailFacts();
   if (query) { const q = query.trim(); if (/@/.test(q)) email = q; else orders = [...new Set(q.match(/\d{4,8}/g) || [])].slice(0, 5); }
-  const st = $('orderStatus');
+  const st = $('orderStatus'); $('orderDiag').hidden = true;
   if (!email && !orders.length) { if (!auto) setStatus(st, query ? 'Vul een ordernummer of een geldig e-mailadres in.' : 'Typ een ordernummer of e-mailadres in de zoekbalk, of open een klantmail.', true); return; }
   setStatus(st, 'Zoeken in je webshopbeheer…'); foundOrders = []; foundRaw = []; showOrders();
-  const r = await askExtension(email, orders);
+  const r = await askExtension(email, orders, auto);
   if (r.error) { setStatus(st, r.error, true); return; }
-  if ((!r.orders || !r.orders.length) && (r.rows === 0 || /met samen 0 regels/.test(r.info || ''))) {
-    setStatus(st, 'MOGELIJK UITGELOGD: het webshopbeheer gaf geen enkele bestelling terug. Log opnieuw in op adviesdrogisterij.nl/App.', true); return;
+  const none = !r.orders || !r.orders.length;
+  // Uitgelogd: alleen als het beheer dat echt laat merken (nieuwe extensie), of bij de oude extensie als er niets geladen was
+  const oldExt = !r.ver;
+  if (none && (r.loggedOut || (oldExt && !auto && (r.rows === 0 || /met samen 0 regels/.test(r.info || ''))))) {
+    setStatus(st, 'MOGELIJK UITGELOGD: het webshopbeheer vraagt om opnieuw in te loggen. Log opnieuw in op adviesdrogisterij.nl/App en zoek daarna opnieuw.', true); return;
   }
   // Automatisch zoeken bij het openen van een mail (bijv. van een leverancier): niets gevonden = geen melding
-  if ((!r.orders || !r.orders.length) && auto) { setStatus(st, ''); return; }
-  if (!r.orders || !r.orders.length) { setStatus(st, `Geen bestelling gevonden${orders.length ? ' voor ' + orders.join(', ') : ''}${email ? (orders.length ? ' of ' : ' voor ') + email : ''} in je webshop. Controleer het ordernummer of e-mailadres.`); return; }
+  if (none && auto) { setStatus(st, ''); return; }
+  if (none) {
+    const tries = (r.diag && r.diag.tries) || [], anyOk = tries.some(t => t.status === 'ok');
+    const hint = !anyOk && r.ver ? ' Lukt het steeds niet? Open dan één keer Beheer orders in het beheer en zoek opnieuw: dan leert de extensie de juiste zoekvelden.' : ' Controleer het ordernummer of e-mailadres.';
+    setStatus(st, `Geen bestelling gevonden${orders.length ? ' voor ' + orders.join(', ') : ''}${email ? (orders.length ? ' of ' : ' voor ') + email : ''} in je webshop.${hint}`);
+    showOrderDiag(r); return;
+  }
   extOld = !r.ver || r.ver.split('.').map(Number).reduce((a, n, i) => a + n * [1e6, 1e3, 1][i], 0) < 1002001; // < 1.2.1
   foundRaw = r.orders; foundOrders = r.orders.map(orderSummary); showOrders();
   setStatus(st, `${r.orders.length} bestelling${r.orders.length === 1 ? '' : 'en'} gevonden. Klik op "Overnemen in notitie" om het aan de AI mee te geven.`);
