@@ -146,6 +146,10 @@ pre.ctx { white-space: pre-wrap; font-size: 12px; background: var(--field); bord
 .shotlist { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; } .shotlist:empty { display: none; }
 .shot { position: relative; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--panel); }
 .shot img { display: block; height: 72px; width: auto; max-width: 160px; object-fit: cover; }
+.shot.pdf { display: flex; align-items: center; gap: 8px; min-height: 72px; padding: 6px 30px 6px 10px; max-width: 280px; font-size: 13px; }
+.shot.pdf .nm, .shot.pdf .sub { display: block; }
+.shot.pdf .ico { font-size: 26px; line-height: 1; } .shot.pdf .nm { font-weight: 700; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.shot.pdf .sub { color: var(--muted); font-size: 12px; } .shot.busy { opacity: .6; }
 .shot button { position: absolute; top: 2px; right: 2px; border: 0; border-radius: 50%; width: 22px; height: 22px; line-height: 20px; padding: 0; cursor: pointer; background: rgba(0,0,0,.6); color: #fff; font-size: 14px; }
 .usagebar { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
 .usagebar .chip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; background: var(--panel); color: var(--text); }
@@ -264,8 +268,8 @@ body.locked > header, body.locked > main { display: none; }
         <label for="note" id="noteLabel">Jouw notitie voor het antwoord (optioneel)</label>
         <textarea id="note" placeholder="Bijv.: retour is akkoord, geld staat binnen 5 werkdagen terug. Pakket is gisteren verzonden, track & trace 3SABC123."></textarea>
         <div class="shots">
-          <div class="shotdrop" id="shotDrop" tabindex="0" role="button" title="Klik om een afbeelding te kiezen">📎 Schermafbeelding meesturen: knip (Windows + Shift + S) en plak met <b>Ctrl + V</b>, of sleep een afbeelding hierheen</div>
-          <input type="file" id="shotFile" accept="image/*" multiple hidden>
+          <div class="shotdrop" id="shotDrop" tabindex="0" role="button" title="Klik om een afbeelding of PDF te kiezen">📎 Bijlage meesturen: een <b>schermafbeelding</b> (knip met Windows + Shift + S en plak met <b>Ctrl + V</b>), een <b>afbeelding</b> of een <b>PDF</b>. Sleep hem hierheen of klik om te kiezen.</div>
+          <input type="file" id="shotFile" accept="image/*,application/pdf,.pdf" multiple hidden>
           <div class="shotlist" id="shotList"></div>
         </div>
         <div class="row" style="margin-top:4px">
@@ -523,8 +527,8 @@ body.locked > header, body.locked > main { display: none; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // Versienummer: bij elke wijziging ophogen (groot.klein.fix)
-const APP_VERSION = '1.36.0';       // technisch nummer (voor de updatecontrole)
-const APP_DATE = '2026-10-16 14:41'; // wanneer deze versie online kwam (dit ziet de gebruiker)
+const APP_VERSION = '1.37.0';       // technisch nummer (voor de updatecontrole)
+const APP_DATE = '2026-10-22 14:22'; // wanneer deze versie online kwam (dit ziet de gebruiker)
 const fmtAppDate = d => { const t = new Date(d.replace(' ', 'T')); return isNaN(t) ? d : t.toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 document.querySelectorAll('.appVersion').forEach(el => { el.textContent = 'bijgewerkt ' + fmtAppDate(APP_DATE); el.title = 'Versie ' + APP_VERSION; });
 
@@ -1538,40 +1542,119 @@ const validModel = m => !!m && !/[\s\/:]/.test(m) && !/^https?/i.test(m);
 const cheapModel = () => (validModel(settings.cheapModel) ? settings.cheapModel : '') || (settings.provider === 'openai' && /^gpt-\d+(\.\d+)?$/.test(settings.model) ? settings.model + '-mini' : '');
 let convoModel = null;
 const nl = n => Number(n || 0).toLocaleString('nl-NL');
-// ---------- Schermafbeeldingen meesturen (plakken, slepen of kiezen) ----------
-// Verkleind tot max. 1600 px en als JPEG: scherp genoeg om te lezen, en veel minder tokens. Max. 4 per antwoord.
+// ---------- Bijlagen meesturen: schermafbeeldingen, afbeeldingen en PDF's (plakken, slepen of kiezen) ----------
+// Afbeeldingen: verkleind tot max. 1600 px en als JPEG (scherp genoeg om te lezen, veel minder tokens).
+// PDF's: de tekst wordt in de browser gelezen en gaat als tekst mee (goedkoop). Een gescande PDF (bijna geen tekst)
+// gaat als afbeelding(en) van de eerste pagina's mee. Max. 6 afbeeldingen en 3 PDF's per antwoord.
 let shots = [];
-const SHOT_MAX = 4, SHOT_PX = 1600;
-const shotUrls = () => shots.map(x => x.url);
-const shotNote = () => shots.length ? `\n\nBIJGEVOEGD: ${shots.length} schermafbeelding${shots.length === 1 ? '' : 'en'} van de medewerker (bijv. van de bestelling, een foto of een foutmelding). Gebruik wat erop staat als informatie; noem geen interne gegevens die erop staan.` : '';
-async function addShot(file) {
-  if (!file || !/^image\//.test(file.type)) return;
-  if (shots.length >= SHOT_MAX) { setStatus($('genStatus'), `Maximaal ${SHOT_MAX} schermafbeeldingen per antwoord.`, true); return; }
+const SHOT_PX = 1600, IMG_MAX = 6, PDF_MAX = 3, PDF_PAGES = 30, PDF_SCAN_PAGES = 3, PDF_CHARS = 15000, PDF_MB = 25;
+const imgCount = () => shots.reduce((n, x) => n + (x.kind === 'pdf' ? (x.images || []).length : x.url ? 1 : 0), 0);
+const shotUrls = () => shots.flatMap(x => x.kind === 'pdf' ? (x.images || []) : x.url ? [x.url] : []);
+const shotNote = () => {
+  const imgs = shots.filter(x => x.kind !== 'pdf' && x.url).length, pdfs = shots.filter(x => x.kind === 'pdf' && !x.busy);
+  let t = imgs ? `\n\nBIJGEVOEGD: ${imgs} afbeelding${imgs === 1 ? '' : 'en'} van de medewerker (bijv. een schermafbeelding van de bestelling, een foto of een foutmelding). Gebruik wat erop staat als informatie; noem geen interne gegevens die erop staan.` : '';
+  for (const x of pdfs) {
+    t += `\n\nBIJLAGE (PDF) "${x.name}" (${x.pages} pagina${x.pages === 1 ? '' : "'s"})`;
+    t += x.scanned ? `: gescande PDF zonder leesbare tekst; ${(x.images || []).length === 1 ? 'de eerste pagina is' : `de eerste ${(x.images || []).length} pagina's zijn`} als afbeelding bijgevoegd.`
+      : `:\n"""\n${mask(x.text)}\n"""`;
+  }
+  if (pdfs.length) t += '\nGebruik de inhoud van de bijlage(n) als informatie bij het antwoord; noem geen interne gegevens die erin staan.';
+  return t;
+};
+const fileKind = f => f && (/^image\//.test(f.type) ? 'img' : (f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '')) ? 'pdf' : '');
+function toJpeg(src, w, h) {
+  const k = Math.min(1, SHOT_PX / Math.max(w, h)), c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(src, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.85);
+}
+async function addAttachment(file) {
+  const kind = fileKind(file);
+  if (!kind) { setStatus($('genStatus'), `"${(file && file.name) || 'Dit bestand'}" kan niet mee: alleen afbeeldingen en PDF's.`, true); return; }
+  if (kind === 'img') {
+    if (imgCount() >= IMG_MAX) { setStatus($('genStatus'), `Maximaal ${IMG_MAX} afbeeldingen per antwoord.`, true); return; }
+    try {
+      const bmp = await createImageBitmap(file);
+      shots.push({ kind: 'img', url: toJpeg(bmp, bmp.width, bmp.height) }); renderShots();
+      setStatus($('genStatus'), 'Afbeelding toegevoegd. Die gaat mee met "Antwoord maken".');
+    } catch { setStatus($('genStatus'), 'Kon de afbeelding niet lezen.', true); }
+    return;
+  }
+  if (shots.filter(x => x.kind === 'pdf').length >= PDF_MAX) { setStatus($('genStatus'), `Maximaal ${PDF_MAX} PDF's per antwoord.`, true); return; }
+  if (file.size > PDF_MB * 1024 * 1024) { setStatus($('genStatus'), `"${file.name}" is te groot (max. ${PDF_MB} MB).`, true); return; }
+  const item = { kind: 'pdf', name: (file.name || 'bijlage.pdf').slice(0, 120), busy: true, pages: 0, text: '', images: [] };
+  shots.push(item); renderShots(); setStatus($('genStatus'), `"${item.name}" wordt gelezen…`);
   try {
-    const bmp = await createImageBitmap(file), k = Math.min(1, SHOT_PX / Math.max(bmp.width, bmp.height));
-    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
-    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(bmp, 0, 0, c.width, c.height);
-    shots.push({ url: c.toDataURL('image/jpeg', 0.85) }); renderShots();
-    setStatus($('genStatus'), 'Schermafbeelding toegevoegd. Die gaat mee met "Antwoord maken".');
-  } catch { setStatus($('genStatus'), 'Kon de afbeelding niet lezen.', true); }
+    Object.assign(item, await readPdfAttachment(file, Math.max(0, IMG_MAX - imgCount())), { busy: false });
+    renderShots();
+    setStatus($('genStatus'), item.scanned
+      ? `"${item.name}" is een gescande PDF zonder leesbare tekst: ${item.images.length === 1 ? (item.pages === 1 ? 'de pagina gaat' : 'de eerste pagina gaat') + ' als afbeelding mee.' : item.images.length ? `de eerste ${item.images.length} pagina's gaan als afbeelding mee.` : 'er is geen ruimte meer voor afbeeldingen; verwijder er een.'}`
+      : `"${item.name}" toegevoegd (${item.pages} pagina${item.pages === 1 ? '' : "'s"}). De tekst gaat mee met "Antwoord maken".`, item.scanned && !item.images.length);
+  } catch (err) {
+    shots = shots.filter(x => x !== item); renderShots();
+    setStatus($('genStatus'), `"${item.name}": ${err.message}`, true);
+  }
+}
+// PDF lezen: tekst per pagina; bijna geen tekst = gescand, dan de eerste pagina's als afbeelding
+async function readPdfAttachment(file, imgRoom) {
+  if (!window.pdfjsLib) throw new Error('de PDF-lezer is niet geladen (geen internet?). Ververs de app en probeer het opnieuw.');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  let pdf;
+  try { pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise; }
+  catch (e) { throw new Error(e && e.name === 'PasswordException' ? 'deze PDF is beveiligd met een wachtwoord en kan niet worden gelezen.' : 'kon deze PDF niet lezen.'); }
+  const n = pdf.numPages, read = Math.min(n, PDF_PAGES), texts = [];
+  for (let i = 1; i <= read; i++) {
+    const c = await (await pdf.getPage(i)).getTextContent();
+    texts.push(c.items.map(it => it.str + (it.hasEOL ? '\n' : ' ')).join('').replace(/[ \t]+\n/g, '\n').trim());
+  }
+  const letters = texts.join('').replace(/\s+/g, '').length, scanned = letters < 40 * read;
+  if (scanned) {
+    const images = [];
+    for (let i = 1; i <= Math.min(n, PDF_SCAN_PAGES, imgRoom); i++) {
+      const page = await pdf.getPage(i), v1 = page.getViewport({ scale: 1 }), scale = Math.min(2.5, SHOT_PX / Math.max(v1.width, v1.height));
+      const vp = page.getViewport({ scale }), c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: g, viewport: vp }).promise;
+      images.push(toJpeg(c, c.width, c.height));
+    }
+    return { pages: n, scanned: true, text: '', chars: 0, images };
+  }
+  let text = texts.map((t, i) => (read > 1 ? `[pagina ${i + 1}]\n` : '') + t).join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (text.length > PDF_CHARS) text = text.slice(0, PDF_CHARS) + '\n[… rest van de PDF ingekort …]';
+  if (n > read) text += `\n[… alleen de eerste ${read} van ${n} pagina's gelezen …]`;
+  return { pages: n, scanned: false, text, chars: text.length, images: [] };
 }
 function renderShots() {
-  $('shotList').innerHTML = shots.map((x, i) => `<div class="shot"><img src="${x.url}" alt="Schermafbeelding ${i + 1}"><button type="button" data-delshot="${i}" title="Verwijderen" aria-label="Schermafbeelding verwijderen">×</button></div>`).join('');
+  $('shotList').innerHTML = shots.map((x, i) => x.kind === 'pdf'
+    ? `<div class="shot pdf${x.busy ? ' busy' : ''}" title="${esc(x.name)}"><span class="ico">📄</span><span><span class="nm">${esc(x.name)}</span><span class="sub">${x.busy ? 'wordt gelezen…' : `${x.pages} blz. · ${x.scanned ? `gescand, ${x.images.length} als afbeelding` : nl(x.chars) + ' tekens'}`}</span></span><button type="button" data-delshot="${i}" title="Verwijderen" aria-label="Bijlage verwijderen">×</button></div>`
+    : `<div class="shot"><img src="${x.url}" alt="Afbeelding ${i + 1}"><button type="button" data-delshot="${i}" title="Verwijderen" aria-label="Afbeelding verwijderen">×</button></div>`).join('');
 }
 function clearShots() { shots = []; renderShots(); }
-$('shotList').addEventListener('click', e => { const i = e.target.dataset.delshot; if (i !== undefined) { shots.splice(+i, 1); renderShots(); } });
+const addFiles = async files => { for (const f of files) await addAttachment(f); };
+$('shotList').addEventListener('click', e => { const b = e.target.closest('[data-delshot]'); if (b) { shots.splice(+b.dataset.delshot, 1); renderShots(); } });
 $('shotDrop').addEventListener('click', () => $('shotFile').click());
 $('shotDrop').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('shotFile').click(); } });
-$('shotFile').addEventListener('change', async e => { for (const f of e.target.files) await addShot(f); e.target.value = ''; });
+$('shotFile').addEventListener('change', async e => { await addFiles([...e.target.files]); e.target.value = ''; });
 ['dragover', 'dragenter'].forEach(t => $('shotDrop').addEventListener(t, e => { e.preventDefault(); $('shotDrop').classList.add('over'); }));
 ['dragleave', 'drop'].forEach(t => $('shotDrop').addEventListener(t, () => $('shotDrop').classList.remove('over')));
-$('shotDrop').addEventListener('drop', async e => { e.preventDefault(); for (const f of e.dataTransfer.files) await addShot(f); });
-// Ctrl+V met een afbeelding op het klembord, ergens op Antwoord maken (tekst plakken werkt gewoon zoals altijd)
+$('shotDrop').addEventListener('drop', async e => { e.preventDefault(); await addFiles([...e.dataTransfer.files]); });
+// Een bestand dat ergens anders op Antwoord maken wordt losgelaten ook als bijlage nemen
+// (anders opent de browser de PDF en verlaat je de app)
+const onCompose = () => !!document.querySelector('section[data-tab="compose"].active');
+const hasFiles = e => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+document.addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+document.addEventListener('drop', async e => {
+  if (!hasFiles(e) || e.defaultPrevented) return;
+  e.preventDefault(); if (onCompose()) await addFiles([...e.dataTransfer.files]);
+});
+// Ctrl+V met een afbeelding of PDF op het klembord, ergens op Antwoord maken (tekst plakken werkt gewoon zoals altijd)
 document.addEventListener('paste', async e => {
-  if (!document.querySelector('section[data-tab="compose"].active')) return;
-  const files = [...(e.clipboardData && e.clipboardData.items || [])].filter(it => it.kind === 'file' && /^image\//.test(it.type)).map(it => it.getAsFile());
+  if (!onCompose()) return;
+  const cd = e.clipboardData; if (!cd) return;
+  let files = [...(cd.files || [])].filter(fileKind);
+  if (!files.length) files = [...(cd.items || [])].filter(it => it.kind === 'file').map(it => it.getAsFile()).filter(fileKind);
   if (!files.length) return;
-  e.preventDefault(); for (const f of files) await addShot(f);
+  e.preventDefault(); await addFiles(files);
 });
 // De volledige tekst die naar de AI gaat (alleen ter controle; leesbaar opgemaakt)
 const ROLE_NL = { system: 'INSTRUCTIES, KENNISBANK EN REGELS', user: 'VRAAG AAN DE AI', assistant: 'EERDER ANTWOORD VAN DE AI' };
@@ -1651,6 +1734,7 @@ async function run(messages, model = convoModel || settings.model) {
 }
 
 $('genBtn').addEventListener('click', () => {
+  if (shots.some(x => x.busy)) { setStatus($('genStatus'), 'Even wachten: de PDF wordt nog gelezen.', true); return; }
   if (newMail) return makeNewMail();
   const email = $('email').value.trim();
   if (!email) { setStatus($('genStatus'), 'Plak eerst de mail van de klant.', true); return; }
